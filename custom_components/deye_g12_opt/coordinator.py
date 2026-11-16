@@ -275,28 +275,46 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.last_full_soc_time = now
 
             # Remote Mode watchdog maintenance and auto re-arming after connection drops
-            if self.control_mode == MODE_REMOTE_RAM and self.executor.remote_mode_active:
+            should_remote_charge = (
+                self.control_mode == MODE_REMOTE_RAM
+                and self.current_plan is not None
+                and self.current_plan.grid_charge_enable
+                and self.automation_active
+                and not self.simulation_mode
+            )
+
+            if self.control_mode == MODE_REMOTE_RAM and (
+                self.executor.remote_mode_active or should_remote_charge
+            ):
                 if (
                     self._remote_mode_needs_rearm
-                    and self.current_plan
-                    and self.current_plan.grid_charge_enable
+                    and should_remote_charge
+                    and self.current_plan is not None
                 ):
-                    _LOGGER.info(
-                        "Modbus connection restored: Re-arming full Remote Mode charging registers on Deye inverter"
-                    )
-                    rearm_ok = await self.executor.async_apply_plan(
-                        plan=self.current_plan,
-                        tariff_calc=self.tariff,
-                        simulation_mode=self.simulation_mode,
-                        current_soc=current_soc or self.soc_min,
-                    )
-                    if rearm_ok:
-                        self._remote_mode_needs_rearm = False
-                else:
+                    # Probe connection with a single watchdog refresh (1101) to verify link is actually back
+                    # This avoids spamming the full 6-register sequence while Solarman is still offline
+                    link_alive = await self.executor.async_refresh_watchdog()
+                    if link_alive:
+                        _LOGGER.info(
+                            "Modbus connection verified: Re-arming full Remote Mode charging registers on Deye inverter"
+                        )
+                        rearm_ok = await self.executor.async_apply_plan(
+                            plan=self.current_plan,
+                            tariff_calc=self.tariff,
+                            simulation_mode=self.simulation_mode,
+                            current_soc=current_soc or self.soc_min,
+                        )
+                        if rearm_ok:
+                            self._remote_mode_needs_rearm = False
+                    else:
+                        _LOGGER.debug(
+                            "Modbus connection offline; inverter autonomous 1800s hardware timer active"
+                        )
+                elif self.executor.remote_mode_active:
                     refresh_ok = await self.executor.async_refresh_watchdog()
                     if not refresh_ok:
-                        _LOGGER.warning(
-                            "Watchdog refresh failed (Modbus connection drop). Flagging for full re-arm upon reconnection."
+                        _LOGGER.info(
+                            "Watchdog refresh deferred (Modbus connection drop). Buffered by 1800s hardware watchdog. Flagging for full re-arm upon reconnection."
                         )
                         self._remote_mode_needs_rearm = True
             elif self.control_mode == MODE_REMOTE_RAM:
@@ -450,6 +468,8 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         if not success and self.automation_active and not self.simulation_mode:
+            if self.control_mode == MODE_REMOTE_RAM:
+                self._remote_mode_needs_rearm = True
             _LOGGER.warning(
                 "Execution failed (Modbus logger unavailable). Rescheduling retry in 120s"
             )

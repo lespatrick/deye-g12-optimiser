@@ -7,6 +7,7 @@ import logging
 from datetime import date
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 
 from .const import (
@@ -41,6 +42,10 @@ def to_signed_16(val: int) -> int:
 
 class DeyeExecutionError(Exception):
     """Raised when an execution safety check fails."""
+
+
+class DeyeConnectionError(Exception):
+    """Raised when Modbus communication fails due to connection drop or offline dongle."""
 
 
 class DeyeExecutor:
@@ -339,7 +344,18 @@ class DeyeExecutor:
             return True
 
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.exception("Failed setting Remote Mode registers: %s", exc)
+            is_conn_error = (
+                isinstance(exc, DeyeConnectionError)
+                or "runtime_data" in str(exc).lower()
+                or "connection" in str(exc).lower()
+            )
+            if is_conn_error:
+                _LOGGER.info(
+                    "Remote Mode registers deferred (Modbus offline): %s. Inverter continues autonomous charging via 1800s hardware watchdog.",
+                    exc,
+                )
+            else:
+                _LOGGER.warning("Failed setting Remote Mode registers: %s", exc)
             self.last_execution_status = f"Remote Mode error: {exc}"
             return False
 
@@ -353,7 +369,17 @@ class DeyeExecutor:
             await self._write_register(REG_REMOTE_WATCHDOG, self.watchdog_timeout_sec)
             return True
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.warning("Failed refreshing Remote Mode watchdog: %s", exc)
+            is_conn_error = (
+                isinstance(exc, DeyeConnectionError)
+                or "runtime_data" in str(exc).lower()
+                or "connection" in str(exc).lower()
+            )
+            if is_conn_error:
+                _LOGGER.debug(
+                    "Watchdog refresh deferred (Modbus connection offline): %s", exc
+                )
+            else:
+                _LOGGER.warning("Failed refreshing Remote Mode watchdog: %s", exc)
             return False
 
     async def async_disable_remote_mode(self) -> bool:
@@ -429,14 +455,13 @@ class DeyeExecutor:
         try:
             # 1. Check config entries for runtime_data
             for entry in self.hass.config_entries.async_entries("solarman"):
-                runtime_data = getattr(entry, "runtime_data", None)
-                if runtime_data is not None:
-                    if hasattr(runtime_data, "execute"):
-                        return runtime_data
-                    if hasattr(runtime_data, "coordinator") and hasattr(
-                        runtime_data.coordinator, "execute"
+                if hasattr(entry, "runtime_data") and entry.runtime_data is not None:
+                    if hasattr(entry.runtime_data, "execute"):
+                        return entry.runtime_data
+                    if hasattr(entry.runtime_data, "coordinator") and hasattr(
+                        entry.runtime_data.coordinator, "execute"
                     ):
-                        return runtime_data.coordinator
+                        return entry.runtime_data.coordinator
 
             # 2. Check hass.data["solarman"]
             solarman_data = self.hass.data.get("solarman")
@@ -457,9 +482,9 @@ class DeyeExecutor:
             # 3. Check all config entries in hass if domain matched loosely
             for entry in self.hass.config_entries.async_entries():
                 if "solarman" in entry.domain.lower():
-                    runtime_data = getattr(entry, "runtime_data", None)
-                    if runtime_data is not None and hasattr(runtime_data, "execute"):
-                        return runtime_data
+                    if hasattr(entry, "runtime_data") and entry.runtime_data is not None:
+                        if hasattr(entry.runtime_data, "execute"):
+                            return entry.runtime_data
         except Exception as exc:  # pylint: disable=broad-except
             _LOGGER.debug("Error finding Solarman coordinator: %s", exc)
 
@@ -490,7 +515,7 @@ class DeyeExecutor:
                 return True
 
     async def _write_register(self, address: int, value: int) -> None:
-        """Write single register using solarman.write_multiple_registers service."""
+        """Write single register using direct coordinator execution or solarman services."""
         # SAFETY CHECK FOR 3PH: Never touch 259
         if self.inverter_profile in (PROFILE_3PH_LV, PROFILE_3PH_HV) and address == 259:
             raise DeyeExecutionError(
@@ -503,7 +528,41 @@ class DeyeExecutor:
                 "CRITICAL SAFETY VIOLATION: Attempted to write >= 1000 to register 1115!"
             )
 
-        # Standard davidrapan/ha-solarman schema uses 'address' and 'device' (HA device ID)
+        # 1. Primary method: Direct coordinator write
+        # Bypasses solarman services.py runtime_data bugs and HA service dispatch overhead
+        coord = self._get_solarman_coordinator()
+        if coord is not None:
+            try:
+                direct_ok = await self._execute_coordinator_write(coord, address, value)
+                if direct_ok:
+                    _LOGGER.debug(
+                        "Modbus write directly via coordinator succeeded for register %s = %s",
+                        address,
+                        value,
+                    )
+                    return
+            except Exception as direct_exc:  # pylint: disable=broad-except
+                _LOGGER.debug(
+                    "Direct coordinator write failed (%s), falling back to service call",
+                    direct_exc,
+                )
+
+        # 2. Check if Solarman is loaded before attempting service call
+        solarman_entries = self.hass.config_entries.async_entries("solarman")
+        if solarman_entries:
+            is_solarman_loaded = any(
+                getattr(entry, "state", None) == ConfigEntryState.LOADED
+                and hasattr(entry, "runtime_data")
+                and entry.runtime_data is not None
+                for entry in solarman_entries
+            )
+
+            if not is_solarman_loaded and coord is None:
+                raise DeyeConnectionError(
+                    f"Solarman integration is offline or reconnecting; write to register {address} deferred"
+                )
+
+        # 3. Standard davidrapan/ha-solarman service
         device_id = self._resolve_solarman_device_id()
         service_data: dict[str, Any] = {
             "address": address,
@@ -512,32 +571,7 @@ class DeyeExecutor:
         if device_id:
             service_data["device"] = device_id
 
-        # Patch or auto-reload if solarman is missing runtime_data
-        solarman_entries = self.hass.config_entries.async_entries("solarman")
-        coord = self._get_solarman_coordinator()
-
-        if coord is None and solarman_entries:
-            for entry in solarman_entries:
-                if getattr(entry, "runtime_data", None) is None:
-                    _LOGGER.info(
-                        "Solarman entry missing runtime_data. Triggering async_reload for self-healing."
-                    )
-                    try:
-                        await self.hass.config_entries.async_reload(entry.entry_id)
-                        await asyncio.sleep(1.0)
-                        coord = self._get_solarman_coordinator()
-                    except Exception as reload_err:
-                        _LOGGER.debug("Auto-reload of solarman failed: %s", reload_err)
-
-        if coord is not None and solarman_entries:
-            for entry in solarman_entries:
-                if getattr(entry, "runtime_data", None) is None:
-                    try:
-                        entry.runtime_data = coord
-                    except Exception as err:
-                        _LOGGER.debug("Could not patch config_entry.runtime_data: %s", err)
-
-        _LOGGER.debug("Writing Modbus register %s = %s", address, value)
+        _LOGGER.debug("Writing Modbus register %s = %s via service call", address, value)
         try:
             await self.hass.services.async_call(
                 "solarman",
@@ -547,27 +581,7 @@ class DeyeExecutor:
             )
             return
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.debug(
-                "solarman.write_multiple_registers service call failed for register %s = %s: %s. Attempting fallback.",
-                address,
-                value,
-                exc,
-            )
-            # Fallback 1: Direct coordinator execution if service failed (e.g. AttributeError or ServiceValidationError)
-            if coord is not None:
-                try:
-                    direct_ok = await self._execute_coordinator_write(coord, address, value)
-                    if direct_ok:
-                        _LOGGER.debug(
-                            "Direct coordinator write succeeded for register %s = %s",
-                            address,
-                            value,
-                        )
-                        return
-                except Exception as direct_exc:
-                    _LOGGER.warning("Direct coordinator execution failed: %s", direct_exc)
-
-            # Fallback 2: Legacy Solarman service variants (e.g. StephanJoubert)
+            # Fallback for legacy Solarman service variants (e.g. StephanJoubert)
             if "extra keys not allowed" in str(exc) or "register" in str(exc).lower():
                 fallback_data: dict[str, Any] = {
                     "register": address,
@@ -590,6 +604,11 @@ class DeyeExecutor:
                     blocking=True,
                 )
                 return
+
+            if "runtime_data" in str(exc) or "connection" in str(exc).lower():
+                raise DeyeConnectionError(
+                    f"Solarman communication unavailable: {exc}"
+                ) from exc
 
             raise
 

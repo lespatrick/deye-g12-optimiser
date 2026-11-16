@@ -373,3 +373,36 @@ async def test_write_register_coordinator_direct_fallback(hass):
     assert address == REG_REMOTE_ENABLE
     assert data == [1]
 
+
+@pytest.mark.asyncio
+async def test_write_register_offline_solarman_defers_cleanly(hass):
+    """Verify that when Solarman entry is offline without runtime_data, writes defer cleanly without reloading."""
+    from unittest.mock import AsyncMock, patch
+
+    from homeassistant.config_entries import ConfigEntryState
+    from pytest_homeassistant.common import MockConfigEntry
+
+    from custom_components.deye_g12_opt.executor import DeyeConnectionError
+
+    executor = DeyeExecutor(
+        hass=hass,
+        inverter_profile=PROFILE_3PH_LV,
+        control_mode=MODE_REMOTE_RAM,
+    )
+
+    # Add Solarman entry in SETUP_RETRY (no runtime_data)
+    solarman_entry = MockConfigEntry(
+        domain="solarman",
+        entry_id="solarman_offline_entry",
+        state=ConfigEntryState.SETUP_RETRY,
+    )
+    solarman_entry.add_to_hass(hass)
+
+    with patch.object(hass.config_entries, "async_reload", AsyncMock()) as mock_reload:
+        with pytest.raises(DeyeConnectionError, match="offline or reconnecting"):
+            await executor._write_register(REG_REMOTE_ENABLE, 1)
+
+        # Ensure we NEVER aggressively reload Solarman during network drops
+        assert not mock_reload.called
+
+

@@ -213,6 +213,7 @@ async def test_coordinator_watchdog_auto_migration_and_rearm(hass: HomeAssistant
 
     # 2. Test re-arm mechanism:
     # Setup active Remote Mode with a grid charge plan
+    coordinator.simulation_mode = False
     coordinator.executor.remote_mode_active = True
     coordinator.current_plan = PlanResult(
         plan_type="night",
@@ -231,7 +232,10 @@ async def test_coordinator_watchdog_auto_migration_and_rearm(hass: HomeAssistant
         assert coordinator._remote_mode_needs_rearm is True
 
     # Next update data: simulate connection restored, verify async_apply_plan (re-arm) was invoked
-    with patch.object(coordinator.executor, "async_apply_plan", AsyncMock(return_value=True)) as mock_apply:
+    with (
+        patch.object(coordinator.executor, "async_refresh_watchdog", AsyncMock(return_value=True)),
+        patch.object(coordinator.executor, "async_apply_plan", AsyncMock(return_value=True)) as mock_apply,
+    ):
         await coordinator._async_update_data()
         assert mock_apply.called
         assert coordinator._remote_mode_needs_rearm is False
