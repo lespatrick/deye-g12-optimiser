@@ -255,6 +255,10 @@ class DeyeG12OptionsFlowHandler(config_entries.OptionsFlow):
                         mode=selector.SelectSelectorMode.DROPDOWN,
                     )
                 ),
+                vol.Optional(
+                    CONF_SOLARMAN_DEVICE_ID,
+                    default=config.get(CONF_SOLARMAN_DEVICE_ID) or "",
+                ): selector.TextSelector(),
                 vol.Required(
                     CONF_SOC_MIN,
                     default=float(config.get(CONF_SOC_MIN, DEFAULT_SOC_MIN)),

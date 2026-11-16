@@ -93,7 +93,7 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self.inverter_profile = config.get(CONF_INVERTER_PROFILE, PROFILE_3PH_LV)
         self.control_mode = config.get(CONF_CONTROL_MODE, MODE_TOU_SCHEDULE)
-        self.solarman_device_id = config.get(CONF_SOLARMAN_DEVICE_ID)
+        self.solarman_device_id = config.get(CONF_SOLARMAN_DEVICE_ID) or None
 
         # Entity IDs
         self.battery_soc_entity = config.get(CONF_BATTERY_SOC_ENTITY)

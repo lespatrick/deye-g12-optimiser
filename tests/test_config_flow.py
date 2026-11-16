@@ -103,6 +103,7 @@ async def test_options_flow(hass: HomeAssistant):
         result["flow_id"],
         {
             CONF_CONTROL_MODE: MODE_TOU_SCHEDULE,
+            "solarman_device_id": "SOLARMAN_SN_9999",
             CONF_SOC_MIN: 20.0,
             CONF_SOC_MAX: 90.0,
             "max_user_charge_current_a": 60,
@@ -120,5 +121,6 @@ async def test_options_flow(hass: HomeAssistant):
         },
     )
     assert result2["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options["solarman_device_id"] == "SOLARMAN_SN_9999"
     assert entry.options[CONF_SOC_MIN] == 20.0
     assert entry.options[CONF_SOC_MAX] == 90.0

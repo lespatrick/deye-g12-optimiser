@@ -43,6 +43,7 @@
         "data": {
           "optimization_strategy": "Strategia ładowania",
           "control_mode": "Tryb sterowania",
+          "solarman_device_id": "Numer seryjny / ID urządzenia Solarman (opcjonalny)",
           "soc_min": "Minimalny rezerwowy SOC (%)",
           "soc_max": "Maksymalny docelowy SOC z sieci (%)",
           "max_user_charge_current_a": "Maksymalny prąd ładowania z sieci (A)",

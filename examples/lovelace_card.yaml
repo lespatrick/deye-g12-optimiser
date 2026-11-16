@@ -88,3 +88,4 @@ cards:
     tap_action:
       action: call-service
       service: deye_g12_opt.recalculate
+
