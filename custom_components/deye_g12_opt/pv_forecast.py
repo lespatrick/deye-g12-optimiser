@@ -75,7 +75,42 @@ class PVForecastParser:
         )
         if isinstance(detailed_forecast, list) and detailed_forecast:
             energy = self._parse_solcast(detailed_forecast, start_dt, end_dt)
-            return (max(0.0, round(energy, 3)), True)
+            if energy > 0.0:
+                return (max(0.0, round(energy, 3)), True)
+
+        # Sibling entity resolution (e.g. today <-> tomorrow if detailedForecast was date-constrained)
+        if hass is not None and entity_id is not None:
+            now_date = datetime.now(WARSAW_TZ).date()
+            sibling_id: str | None = None
+            if start_dt.date() > now_date and "today" in entity_id.lower():
+                sibling_id = entity_id.lower().replace("today", "tomorrow")
+            elif start_dt.date() <= now_date and "tomorrow" in entity_id.lower():
+                sibling_id = entity_id.lower().replace("tomorrow", "today")
+
+            if sibling_id and sibling_id != entity_id:
+                sibling_state = hass.states.get(sibling_id)
+                if sibling_state and sibling_state.state not in (
+                    None,
+                    "",
+                    "unknown",
+                    "unavailable",
+                ):
+                    # Check detailedForecast on sibling
+                    sib_attrs = sibling_state.attributes or {}
+                    sib_detailed = (
+                        sib_attrs.get("detailedForecast")
+                        or sib_attrs.get("detailed_forecast")
+                        or sib_attrs.get("forecasts")
+                    )
+                    if isinstance(sib_detailed, list) and sib_detailed:
+                        sib_energy = self._parse_solcast(sib_detailed, start_dt, end_dt)
+                        if sib_energy > 0.0:
+                            return (max(0.0, round(sib_energy, 3)), True)
+
+                    # Otherwise try generic fallback on sibling state
+                    sib_fallback = self._parse_generic_fallback(sibling_state, start_dt, end_dt)
+                    if sib_fallback > 0.0:
+                        return (max(0.0, round(sib_fallback, 3)), True)
 
         # 2. Try Open-Meteo (wh_period attribute)
         wh_period = attrs.get("wh_period")
