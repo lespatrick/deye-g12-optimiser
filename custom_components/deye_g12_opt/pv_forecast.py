@@ -65,8 +65,14 @@ class PVForecastParser:
 
         attrs = state.attributes or {}
 
-        # 1. Try Solcast (detailedForecast attribute)
-        detailed_forecast = attrs.get("detailedForecast") or attrs.get("detailed_forecast")
+        # 1. Try Solcast (detailedForecast attribute and common variants)
+        detailed_forecast = (
+            attrs.get("detailedForecast")
+            or attrs.get("detailed_forecast")
+            or attrs.get("forecasts")
+            or attrs.get("detailedHourly")
+            or attrs.get("detailed_hourly")
+        )
         if isinstance(detailed_forecast, list) and detailed_forecast:
             energy = self._parse_solcast(detailed_forecast, start_dt, end_dt)
             return (max(0.0, round(energy, 3)), True)
@@ -88,7 +94,11 @@ class PVForecastParser:
         total_kwh = 0.0
 
         for interval in forecast_list:
-            period_start = _to_aware_datetime(interval.get("period_start"))
+            period_start = _to_aware_datetime(
+                interval.get("period_start")
+                or interval.get("periodStart")
+                or interval.get("start_time")
+            )
             if not period_start:
                 continue
 
@@ -96,8 +106,15 @@ class PVForecastParser:
             period_end = period_start.astimezone(start_dt.tzinfo or UTC)
             # Check overlap with [start_dt, end_dt)
             if start_dt <= period_end < end_dt:
-                est = float(interval.get("pv_estimate", 0.0))
-                est10 = float(interval.get("pv_estimate10", est))
+                est = float(
+                    interval.get("pv_estimate")
+                    or interval.get("pv_estimate_p50")
+                    or interval.get("power")
+                    or 0.0
+                )
+                est10 = float(
+                    interval.get("pv_estimate10") or interval.get("pv_estimate_p10") or est
+                )
 
                 if self.use_pessimistic_blend:
                     power_kw = 0.7 * est + 0.3 * est10

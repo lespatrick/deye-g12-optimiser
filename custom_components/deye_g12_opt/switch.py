@@ -115,4 +115,3 @@ class DeyeG12Switch(CoordinatorEntity[DeyeG12Coordinator], SwitchEntity, Restore
         elif self.entity_description.key == SWITCH_EMERGENCY_RESERVE:
             self.coordinator.emergency_reserve = False
         self.async_write_ha_state()
-

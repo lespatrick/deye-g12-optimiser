@@ -176,4 +176,3 @@ SENSOR_EXPECTED_MORNING_PV: Final = "expected_morning_pv"
 SENSOR_HEADROOM_MAX_SOC: Final = "headroom_max_soc"
 SENSOR_DAILY_ARBITRAGE_SAVINGS: Final = "daily_arbitrage_savings"
 SENSOR_LAST_EXECUTION_STATUS: Final = "last_execution_status"
-

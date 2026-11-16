@@ -180,4 +180,3 @@ def test_windows_and_slots():
 
     slots = calc.get_slot_times(d)
     assert slots == [(0, 0), (5, 0), (6, 0), (13, 0), (15, 0), (22, 0)]
-

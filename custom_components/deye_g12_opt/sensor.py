@@ -57,7 +57,7 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         icon="mdi:home-lightning-bolt",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.MEASUREMENT,
+        state_class=SensorStateClass.TOTAL,
     ),
     SensorEntityDescription(
         key=SENSOR_EXPECTED_MORNING_PV,
@@ -65,7 +65,7 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         icon="mdi:solar-power",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.MEASUREMENT,
+        state_class=SensorStateClass.TOTAL,
     ),
     SensorEntityDescription(
         key=SENSOR_HEADROOM_MAX_SOC,
@@ -142,4 +142,3 @@ class DeyeG12Sensor(CoordinatorEntity[DeyeG12Coordinator], SensorEntity):
                 "grid_charge_enable": plan.grid_charge_enable if plan else False,
             }
         return {}
-

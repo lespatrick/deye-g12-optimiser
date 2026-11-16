@@ -152,4 +152,3 @@ def test_midday_plan():
     )
     assert plan_high.grid_charge_enable is False
     assert plan_high.soc_target == 70.0
-
