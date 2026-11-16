@@ -419,6 +419,71 @@ class DeyeExecutor:
             _LOGGER.debug("Error resolving Solarman device ID: %s", exc)
             return self.solarman_device_id
 
+    def _get_solarman_coordinator(self) -> Any | None:
+        """Find the Solarman Coordinator instance from hass config entries or hass.data."""
+        try:
+            # 1. Check config entries for runtime_data
+            for entry in self.hass.config_entries.async_entries("solarman"):
+                runtime_data = getattr(entry, "runtime_data", None)
+                if runtime_data is not None:
+                    if hasattr(runtime_data, "execute"):
+                        return runtime_data
+                    if hasattr(runtime_data, "coordinator") and hasattr(
+                        runtime_data.coordinator, "execute"
+                    ):
+                        return runtime_data.coordinator
+
+            # 2. Check hass.data["solarman"]
+            solarman_data = self.hass.data.get("solarman")
+            if solarman_data is not None:
+                if isinstance(solarman_data, dict):
+                    for val in solarman_data.values():
+                        if hasattr(val, "execute"):
+                            return val
+                        if hasattr(val, "coordinator") and hasattr(val.coordinator, "execute"):
+                            return val.coordinator
+                elif hasattr(solarman_data, "execute"):
+                    return solarman_data
+                elif hasattr(solarman_data, "coordinator") and hasattr(
+                    solarman_data.coordinator, "execute"
+                ):
+                    return solarman_data.coordinator
+
+            # 3. Check all config entries in hass if domain matched loosely
+            for entry in self.hass.config_entries.async_entries():
+                if "solarman" in entry.domain.lower():
+                    runtime_data = getattr(entry, "runtime_data", None)
+                    if runtime_data is not None and hasattr(runtime_data, "execute"):
+                        return runtime_data
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.debug("Error finding Solarman coordinator: %s", exc)
+
+        return None
+
+    async def _execute_coordinator_write(self, coord: Any, address: int, value: int) -> bool:
+        """Execute Modbus write directly on Solarman coordinator or device."""
+        target = None
+        if hasattr(coord, "execute"):
+            target = coord
+        elif hasattr(coord, "device") and hasattr(coord.device, "execute"):
+            target = coord.device
+        elif hasattr(coord, "modbus") and hasattr(coord.modbus, "execute"):
+            target = coord.modbus
+
+        if target is None:
+            return False
+
+        try:
+            await target.execute(16, address, data=[value])
+            return True
+        except TypeError:
+            try:
+                await target.execute(16, address, [value])
+                return True
+            except TypeError:
+                await target.execute(16, address, values=[value])
+                return True
+
     async def _write_register(self, address: int, value: int) -> None:
         """Write single register using solarman.write_multiple_registers service."""
         # SAFETY CHECK FOR 3PH: Never touch 259
@@ -442,6 +507,16 @@ class DeyeExecutor:
         if device_id:
             service_data["device"] = device_id
 
+        # Patch config_entry.runtime_data if missing so solarman services.py doesn't crash with AttributeError
+        coord = self._get_solarman_coordinator()
+        if coord is not None:
+            for entry in self.hass.config_entries.async_entries("solarman"):
+                if getattr(entry, "runtime_data", None) is None:
+                    try:
+                        entry.runtime_data = coord
+                    except Exception as err:
+                        _LOGGER.debug("Could not patch config_entry.runtime_data: %s", err)
+
         _LOGGER.debug("Writing Modbus register %s = %s", address, value)
         try:
             await self.hass.services.async_call(
@@ -450,9 +525,30 @@ class DeyeExecutor:
                 service_data,
                 blocking=True,
             )
+            return
         except Exception as exc:  # pylint: disable=broad-except
-            # Fallback if installed Solarman integration variant rejects 'address' or 'device'
-            if "extra keys not allowed" in str(exc):
+            _LOGGER.warning(
+                "solarman.write_multiple_registers service call failed for register %s = %s: %s. Attempting fallback.",
+                address,
+                value,
+                exc,
+            )
+            # Fallback 1: Direct coordinator execution if service failed (e.g. AttributeError or ServiceValidationError)
+            if coord is not None:
+                try:
+                    direct_ok = await self._execute_coordinator_write(coord, address, value)
+                    if direct_ok:
+                        _LOGGER.info(
+                            "Direct coordinator write succeeded for register %s = %s",
+                            address,
+                            value,
+                        )
+                        return
+                except Exception as direct_exc:
+                    _LOGGER.warning("Direct coordinator execution failed: %s", direct_exc)
+
+            # Fallback 2: Legacy Solarman service variants (e.g. StephanJoubert)
+            if "extra keys not allowed" in str(exc) or "register" in str(exc).lower():
                 fallback_data: dict[str, Any] = {
                     "register": address,
                     "values": [value],
@@ -473,8 +569,9 @@ class DeyeExecutor:
                     fallback_data,
                     blocking=True,
                 )
-            else:
-                raise
+                return
+
+            raise
 
     async def _verify_readback(self, address: int, expected_value: int) -> bool:
         """Perform read-back verification after configurable delay."""

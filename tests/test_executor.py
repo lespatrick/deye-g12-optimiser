@@ -337,3 +337,38 @@ async def test_remote_mode_boundary_shutdown(hass):
     assert written_registers.get(REG_REMOTE_POWER) == 0
     assert written_registers.get(REG_REMOTE_ENABLE) == 0
     assert executor.remote_mode_active is False
+
+
+@pytest.mark.asyncio
+async def test_write_register_coordinator_direct_fallback(hass):
+    """Verify fallback to direct coordinator execution if solarman service crashes with AttributeError."""
+    executor = DeyeExecutor(
+        hass=hass,
+        inverter_profile=PROFILE_3PH_LV,
+        control_mode=MODE_REMOTE_RAM,
+    )
+
+    # Mock service that crashes with 'ConfigEntry' object has no attribute 'runtime_data'
+    async def broken_solarman(call):
+        raise AttributeError("'ConfigEntry' object has no attribute 'runtime_data'")
+
+    hass.services.async_register("solarman", "write_multiple_registers", broken_solarman)
+
+    direct_writes: list[tuple[int, int, list[int]]] = []
+
+    class MockCoordinator:
+        async def execute(self, code, address, data=None):
+            direct_writes.append((code, address, data))
+
+    mock_coord = MockCoordinator()
+    hass.data["solarman"] = {"test_entry_id": mock_coord}
+
+    # Execute write
+    await executor._write_register(REG_REMOTE_ENABLE, 1)
+
+    assert len(direct_writes) == 1
+    code, address, data = direct_writes[0]
+    assert code == 16
+    assert address == REG_REMOTE_ENABLE
+    assert data == [1]
+
