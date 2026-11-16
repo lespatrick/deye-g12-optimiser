@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import (
     DEFAULT_ALLOW_BATTERY_SELL,
+    DEFAULT_WATCHDOG_TIMEOUT_SEC,
     DOMAIN,
     MODE_REMOTE_RAM,
     PROFILE_3PH_HV,
@@ -55,7 +56,7 @@ class DeyeExecutor:
         rated_power_w: int = 15000,
         soc_min: float = 15.0,
         soc_max: float = 95.0,
-        watchdog_timeout_sec: int = 180,
+        watchdog_timeout_sec: int = DEFAULT_WATCHDOG_TIMEOUT_SEC,
         allow_battery_sell: bool = DEFAULT_ALLOW_BATTERY_SELL,
     ) -> None:
         """Initialize Deye Executor."""

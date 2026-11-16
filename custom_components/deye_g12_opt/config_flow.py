@@ -359,7 +359,9 @@ class DeyeG12OptionsFlowHandler(config_entries.OptionsFlow):
                         config.get(CONF_WATCHDOG_TIMEOUT_SEC, DEFAULT_WATCHDOG_TIMEOUT_SEC)
                     ),
                 ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=10, max=600, step=10, unit_of_measurement="s")
+                    selector.NumberSelectorConfig(
+                        min=60, max=18000, step=60, unit_of_measurement="s"
+                    )
                 ),
             }
         )
