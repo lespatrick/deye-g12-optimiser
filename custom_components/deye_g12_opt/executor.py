@@ -313,11 +313,11 @@ class DeyeExecutor:
             # 2. Set Watchdog timer (1101 = timeout_sec)
             await self._write_register(REG_REMOTE_WATCHDOG, self.watchdog_timeout_sec)
 
-            # 3. Set Control Side (1104 = 1 -> Battery/DC)
+            # 3. Set Control Side (1104 = 1 -> Battery/DC side control mode)
             await self._write_register(REG_REMOTE_CONTROL_SIDE, 1)
 
-            # 4. Set Battery Strategy (1105 = 2 -> Power)
-            await self._write_register(REG_REMOTE_BATTERY_STRATEGY, 2)
+            # 4. Set Battery Strategy (1105 = 5 -> Power + SOC control mode according to Deye protocol)
+            await self._write_register(REG_REMOTE_BATTERY_STRATEGY, 5)
 
             # 5. Set Power (1109)
             await self._write_register(REG_REMOTE_POWER, modbus_power_word)
