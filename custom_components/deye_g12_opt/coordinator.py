@@ -190,6 +190,10 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_setup(self) -> None:
         """Set up scheduled triggers for plan evaluation."""
         self._schedule_next_triggers()
+        # Immediately compute initial plan so sensors show real values on startup
+        now = datetime.now(WARSAW_TZ)
+        plan_type = "night" if now.hour >= 15 or now.hour < 6 else "midday"
+        self.hass.async_create_task(self.async_evaluate_and_apply(plan_type))
 
     def _schedule_next_triggers(self) -> None:
         """Schedule future point-in-time plan evaluations."""

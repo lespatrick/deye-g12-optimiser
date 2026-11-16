@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 
 from .const import DOMAIN
 from .coordinator import DeyeG12Coordinator
+from .pge_tariff import WARSAW_TZ
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,6 +35,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 
+    # Register recalculate service
+    if not hass.services.has_service(DOMAIN, "recalculate"):
+
+        async def async_handle_recalculate(call: ServiceCall) -> None:
+            """Recalculate plan on demand."""
+            plan_type = call.data.get("plan_type")
+            now = datetime.now(WARSAW_TZ)
+            target_plan = plan_type or ("night" if now.hour >= 15 or now.hour < 6 else "midday")
+            for coord in list(hass.data.get(DOMAIN, {}).values()):
+                if isinstance(coord, DeyeG12Coordinator):
+                    await coord.async_evaluate_and_apply(target_plan)
+
+        hass.services.async_register(DOMAIN, "recalculate", async_handle_recalculate)
+
     return True
 
 
@@ -45,6 +61,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
+
+    if not hass.data.get(DOMAIN) and hass.services.has_service(DOMAIN, "recalculate"):
+        hass.services.async_remove(DOMAIN, "recalculate")
 
     return unload_ok
 

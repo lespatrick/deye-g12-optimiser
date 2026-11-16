@@ -1,0 +1,16 @@
+recalculate:
+  name: Przelicz plan (Recalculate)
+  description: Natychmiast przelicza plan ładowania magazynu na podstawie prognozy PV i statystyk zużycia.
+  fields:
+    plan_type:
+      name: Typ planu (Plan Type)
+      description: Wybierz 'night' (plan nocny na poranny szczyt) lub 'midday' (plan popołudniowy). Pozostaw puste dla automatycznego wyboru.
+      required: false
+      example: "night"
+      selector:
+        select:
+          options:
+            - label: Nocny (na poranny szczyt)
+              value: night
+            - label: Popołudniowy (na wieczorny szczyt)
+              value: midday
