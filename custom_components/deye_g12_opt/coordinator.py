@@ -8,7 +8,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_point_in_time
+from homeassistant.helpers.event import async_call_later, async_track_point_in_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -403,6 +403,19 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             bms_alarm_active=bms_alarm,
             target_date=target_date,
         )
+
+        if not success and self.automation_active and not self.simulation_mode:
+            _LOGGER.warning(
+                "Execution failed (Modbus logger unavailable). Rescheduling retry in 120s"
+            )
+
+            @callback
+            def _on_retry_trigger(*_: Any) -> None:
+                self.hass.async_create_task(self.async_evaluate_and_apply(plan_type))
+
+            self._unsub_scheduled_triggers.append(
+                async_call_later(self.hass, 120.0, _on_retry_trigger)
+            )
 
         await self.async_request_refresh()
         return success
