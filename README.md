@@ -22,3 +22,8 @@ Adaptive battery charging Home Assistant custom component for **Deye Hybrid Inve
 
 When connecting via RS485 (BMS/Modbus port, 9600 8N1, Slave, Modbus SN = 1) with `davidrapan/ha-solarman`, ensure `battery_packs = -1` is configured in `ha-solarman` if custom battery packs are used without external CAN pack addressing. Start with `Simulation Mode` enabled in Home Assistant to inspect planned target SOC calculations before allowing direct inverter writes.
 
+## Lovelace Dashboard Card
+
+An example dashboard card configuration is available in [`examples/lovelace_card.yaml`](file:///Users/leszekbarszcz/projects/ems/examples/lovelace_card.yaml). It visualizes current tariff status, battery SOC vs. planned target, solar headroom, arbitrage savings, and includes a button to trigger immediate recalculation.
+
+
