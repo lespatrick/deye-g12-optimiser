@@ -1,0 +1,139 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Deye Inverter Profile & Control Mode",
+        "description": "Select your Deye hybrid inverter model and communication mode.",
+        "data": {
+          "title": "Integration Name",
+          "inverter_profile": "Inverter Hardware Profile",
+          "control_mode": "Control Mode",
+          "solarman_device_id": "Solarman Device ID (optional)"
+        }
+      },
+      "entities": {
+        "title": "Telemetry & Sensor Entities",
+        "description": "Configure the required Home Assistant entities for battery SOC, load consumption, and PV forecasts.",
+        "data": {
+          "battery_soc_entity": "Battery SOC Sensor",
+          "total_load_entity": "Total Home Load Sensor (kWh increasing)",
+          "pv_forecast_entity": "PV Forecast Sensor (Solcast, Open-Meteo, Forecast.Solar)",
+          "bms_alarm_entity": "BMS Alarm Binary Sensor / Sensor (optional)",
+          "bms_ccl_entity": "BMS Charge Current Limit Sensor (optional)"
+        }
+      },
+      "system_and_tariff": {
+        "title": "Battery & PGE Tariff Settings",
+        "description": "Configure battery specifications and PGE G12/G12w tariff rules.",
+        "data": {
+          "battery_capacity_kwh": "Nominal Battery Capacity (kWh)",
+          "battery_voltage_v": "Battery Nominal Voltage (V)",
+          "rated_power_w": "Inverter Rated Power (W)",
+          "pge_tariff": "PGE Tariff Variant",
+          "pge_seasonal_shift": "Enable PGE Seasonal Shift (Winter 13-15, Summer 15-17)",
+          "meter_fixed_winter_time": "OSD Meter Clock Fixed in Winter Time (+1h shift in Summer DST)"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Deye G12 Optimizer Options",
+        "data": {
+          "control_mode": "Control Mode",
+          "soc_min": "Minimum Reserve SOC (%)",
+          "soc_max": "Maximum Grid Charge SOC (%)",
+          "max_user_charge_current_a": "Maximum Grid Charge Current (A)",
+          "eta_chg": "Charging Efficiency (0.5 - 1.0)",
+          "eta_dis": "Discharging Efficiency (0.5 - 1.0)",
+          "eta_pv": "PV Inverter Efficiency (0.5 - 1.0)",
+          "safety_pv": "PV Safety Derating Factor (0.5 - 1.0)",
+          "safety_load": "Load Safety Margin Factor (1.0 - 1.5)",
+          "peak_price": "Peak Energy Price (PLN/kWh)",
+          "off_peak_price": "Off-Peak Energy Price (PLN/kWh)",
+          "use_pessimistic_blend": "Use Solcast Pessimistic Blend (70% P50 + 30% P10)",
+          "meter_fixed_winter_time": "OSD Meter Clock Fixed in Winter Time",
+          "readback_delay_sec": "Read-back Verification Delay (seconds)",
+          "watchdog_timeout_sec": "Remote Mode Watchdog Timeout (seconds)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "inverter_profile": {
+      "options": {
+        "3ph_lv": "Three-Phase Low Voltage (SUN-8/10/12/15K-SG04/SG05LP3)",
+        "1ph_lv": "Single-Phase Low Voltage (SUN-3.6/5/6/8K-SG01/SG03LP1)",
+        "3ph_hv": "Three-Phase High Voltage (SUN-5/6/8/10/15/20K-SG01HP3)",
+        "all_in_one_bk": "All-in-One SUN-BK Series"
+      }
+    },
+    "control_mode": {
+      "options": {
+        "tou_schedule": "Mode A: Time of Use (TOU) Schedule (EEPROM)",
+        "remote_mode_ram": "Mode B: Remote Mode Fast Registers 1100+ (Volatile RAM)"
+      }
+    },
+    "pge_tariff": {
+      "options": {
+        "g12": "PGE G12 (Night & Midday Off-Peak)",
+        "g12w": "PGE G12w (Night, Midday, Weekends & Polish Holidays Off-Peak)"
+      }
+    }
+  },
+  "entity": {
+    "switch": {
+      "automation_active": {
+        "name": "Automation Active"
+      },
+      "simulation_mode": {
+        "name": "Simulation Mode"
+      },
+      "emergency_reserve": {
+        "name": "Emergency Reserve (Storm Watch 100%)"
+      }
+    },
+    "number": {
+      "soc_min": {
+        "name": "SOC Minimum Reserve"
+      },
+      "soc_max": {
+        "name": "SOC Maximum Grid Target"
+      },
+      "max_charge_current": {
+        "name": "Max Grid Charge Current"
+      },
+      "balancing_interval": {
+        "name": "Cell Balancing Interval"
+      }
+    },
+    "sensor": {
+      "planned_soc_target": {
+        "name": "Planned SOC Target"
+      },
+      "planned_charge_current": {
+        "name": "Planned Charge Current"
+      },
+      "current_tariff_zone": {
+        "name": "Current Tariff Zone"
+      },
+      "expected_morning_load": {
+        "name": "Expected Morning Load"
+      },
+      "expected_morning_pv": {
+        "name": "Expected Morning PV"
+      },
+      "headroom_max_soc": {
+        "name": "PV Headroom Max SOC"
+      },
+      "daily_arbitrage_savings": {
+        "name": "Estimated Daily Arbitrage Savings"
+      },
+      "last_execution_status": {
+        "name": "Last Execution Status"
+      }
+    }
+  }
+}
+

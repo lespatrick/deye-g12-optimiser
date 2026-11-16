@@ -1,0 +1,139 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Profil falownika Deye i tryb sterowania",
+        "description": "Wybierz model falownika hybrydowego Deye oraz tryb komunikacji.",
+        "data": {
+          "title": "Nazwa integracji",
+          "inverter_profile": "Profil sprzętowy falownika",
+          "control_mode": "Tryb sterowania",
+          "solarman_device_id": "Identyfikator urządzenia Solarman (opcjonalny)"
+        }
+      },
+      "entities": {
+        "title": "Encje telemetryczne i czujniki",
+        "description": "Skonfiguruj wymagane encje Home Assistant dla SOC baterii, poboru domu i prognozy PV.",
+        "data": {
+          "battery_soc_entity": "Czujnik poziomu naładowania baterii (SOC)",
+          "total_load_entity": "Czujnik całkowitego zużycia domu (kWh rosnący)",
+          "pv_forecast_entity": "Czujnik prognozy PV (Solcast, Open-Meteo, Forecast.Solar)",
+          "bms_alarm_entity": "Czujnik alarmu BMS (opcjonalny)",
+          "bms_ccl_entity": "Czujnik limitu prądu ładowania BMS (opcjonalny)"
+        }
+      },
+      "system_and_tariff": {
+        "title": "Ustawienia baterii i taryfy PGE",
+        "description": "Skonfiguruj parametry magazynu energii i reguły taryfy PGE G12/G12w.",
+        "data": {
+          "battery_capacity_kwh": "Pojemność znamionowa baterii (kWh)",
+          "battery_voltage_v": "Napięcie znamionowe baterii (V)",
+          "rated_power_w": "Moc znamionowa falownika (W)",
+          "pge_tariff": "Wariant taryfy PGE",
+          "pge_seasonal_shift": "Włącz przesunięcie sezonowe PGE (Zima 13-15, Lato 15-17)",
+          "meter_fixed_winter_time": "Zegar licznika OSD na stałe w czasie zimowym (+1h w lecie DST)"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opcje optymalizatora Deye G12",
+        "data": {
+          "control_mode": "Tryb sterowania",
+          "soc_min": "Minimalny rezerwowy SOC (%)",
+          "soc_max": "Maksymalny docelowy SOC z sieci (%)",
+          "max_user_charge_current_a": "Maksymalny prąd ładowania z sieci (A)",
+          "eta_chg": "Sprawność ładowania (0.5 - 1.0)",
+          "eta_dis": "Sprawność rozładowania (0.5 - 1.0)",
+          "eta_pv": "Sprawność falownika PV (0.5 - 1.0)",
+          "safety_pv": "Współczynnik ostrożności prognozy PV (0.5 - 1.0)",
+          "safety_load": "Margines bezpieczeństwa zużycia domu (1.0 - 1.5)",
+          "peak_price": "Cena energii w szczycie (PLN/kWh)",
+          "off_peak_price": "Cena energii w dolinie (PLN/kWh)",
+          "use_pessimistic_blend": "Użyj pesymistycznego miksu Solcast (70% P50 + 30% P10)",
+          "meter_fixed_winter_time": "Zegar licznika OSD na stałe w czasie zimowym",
+          "readback_delay_sec": "Opóźnienie weryfikacji po zapisie (sekundy)",
+          "watchdog_timeout_sec": "Limit czasu watchdog w Remote Mode (sekundy)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "inverter_profile": {
+      "options": {
+        "3ph_lv": "Trójfazowy Niskonapięciowy (SUN-8/10/12/15K-SG04/SG05LP3)",
+        "1ph_lv": "Jednofazowy Niskonapięciowy (SUN-3.6/5/6/8K-SG01/SG03LP1)",
+        "3ph_hv": "Trójfazowy Wysokonapięciowy (SUN-5/6/8/10/15/20K-SG01HP3)",
+        "all_in_one_bk": "Seria All-in-One SUN-BK"
+      }
+    },
+    "control_mode": {
+      "options": {
+        "tou_schedule": "Tryb A: Harmonogram TOU w EEPROM",
+        "remote_mode_ram": "Tryb B: Szybkie rejestry ulotne RAM 1100+ (Remote Mode)"
+      }
+    },
+    "pge_tariff": {
+      "options": {
+        "g12": "PGE G12 (Dolina nocna i dzienna)",
+        "g12w": "PGE G12w (Dolina nocna, dzienna, weekendy i święta państwowe)"
+      }
+    }
+  },
+  "entity": {
+    "switch": {
+      "automation_active": {
+        "name": "Automatyzacja aktywna"
+      },
+      "simulation_mode": {
+        "name": "Tryb symulacji"
+      },
+      "emergency_reserve": {
+        "name": "Rezerwa awaryjna (Ochrona przed burzą 100%)"
+      }
+    },
+    "number": {
+      "soc_min": {
+        "name": "Minimalna rezerwa SOC"
+      },
+      "soc_max": {
+        "name": "Maksymalny docelowy SOC z sieci"
+      },
+      "max_charge_current": {
+        "name": "Maksymalny prąd ładowania z sieci"
+      },
+      "balancing_interval": {
+        "name": "Interwał balansowania ogniw"
+      }
+    },
+    "sensor": {
+      "planned_soc_target": {
+        "name": "Planowany docelowy SOC"
+      },
+      "planned_charge_current": {
+        "name": "Planowany prąd ładowania"
+      },
+      "current_tariff_zone": {
+        "name": "Bieżąca strefa taryfowa"
+      },
+      "expected_morning_load": {
+        "name": "Oczekiwane poranne zużycie"
+      },
+      "expected_morning_pv": {
+        "name": "Oczekiwana poranna generacja PV"
+      },
+      "headroom_max_soc": {
+        "name": "Maksymalny SOC rezerwy dla PV"
+      },
+      "daily_arbitrage_savings": {
+        "name": "Szacowana dzienna oszczędność arbitrażowa"
+      },
+      "last_execution_status": {
+        "name": "Status ostatniego wykonania"
+      }
+    }
+  }
+}
+

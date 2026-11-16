@@ -1,0 +1,12 @@
+{
+  "domain": "deye_g12_opt",
+  "name": "Deye G12 Optimizer",
+  "codeowners": ["@lespatrick"],
+  "config_flow": true,
+  "dependencies": [],
+  "after_dependencies": ["recorder", "solarman"],
+  "documentation": "https://github.com/lespatrick/deye-g12-optimiser",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/lespatrick/deye-g12-optimiser/issues",
+  "version": "1.0.0"
+}
