@@ -1,0 +1,90 @@
+# Deye G12 Optimizer - Karta Dashboardu Lovelace (Home Assistant)
+# Wklej ten kod w Dashboardzie Home Assistant:
+# Edytuj pulpit -> Dodaj kartę -> Karta ręczna (Manual card)
+
+type: vertical-stack
+cards:
+  # 1. Nagłówek i bieżąca strefa taryfowa
+  - type: custom:mushroom-template-card
+    primary: Deye G12 Optimizer
+    secondary: >-
+      Strefa: {{ states('sensor.deye_g12_optimizer_current_tariff_zone') }} |
+      {{ states('sensor.deye_g12_optimizer_last_execution_status') }}
+    icon: mdi:battery-charging-wireless
+    icon_color: >-
+      {% if states('sensor.deye_g12_optimizer_current_tariff_zone') == 'Tani prąd (pozaszczytowa)' %}
+        green
+      {% else %}
+        amber
+      {% endif %}
+    tap_action:
+      action: more-info
+      entity: sensor.deye_g12_optimizer_planned_soc_target
+
+  # Alternatywa natywna (jeśli nie masz zainstalowanego Mushroom):
+  # - type: glance
+  #   entities:
+  #     - entity: sensor.deye_g12_optimizer_current_tariff_zone
+  #       name: Strefa PGE G12
+  #     - entity: switch.deye_g12_optimizer_simulation_mode
+  #       name: Tryb Symulacji
+  #     - entity: switch.deye_g12_optimizer_automation_active
+  #       name: Automatyzacja
+
+  # 2. Wizualizacja Baterii i Celu Ładowania
+  - type: horizontal-stack
+    cards:
+      - type: gauge
+        entity: sensor.battery_soc # Zmień na swoją encję baterii
+        name: Aktualny SOC
+        min: 0
+        max: 100
+        needle: true
+        severity:
+          red: 0
+          amber: 20
+          green: 80
+
+      - type: gauge
+        entity: sensor.deye_g12_optimizer_planned_soc_target
+        name: Cel Nocny G12
+        min: 0
+        max: 100
+        needle: true
+        severity:
+          red: 0
+          amber: 30
+          green: 75
+
+  # 3. Szczegóły Decyzji i Parametry
+  - type: entities
+    title: Bilans i Parametry Decyzji
+    show_header_toggle: false
+    entities:
+      - entity: sensor.deye_g12_optimizer_planned_charge_current
+        name: Planowany Prąd Ładowania
+        icon: mdi:current-ac
+      - entity: sensor.deye_g12_optimizer_headroom_max_soc
+        name: Rezerwacja na Słońce (Headroom)
+        icon: mdi:solar-power-variant
+      - entity: sensor.deye_g12_optimizer_expected_morning_pv
+        name: Prognozowana Produkcja PV
+        icon: mdi:weather-sunny
+      - entity: sensor.deye_g12_optimizer_expected_morning_load
+        name: Przewidywane Zużycie Domu
+        icon: mdi:home-lightning-bolt
+      - entity: sensor.deye_g12_optimizer_daily_arbitrage_savings
+        name: Dzienna Oszczędność Arbitrażu
+        icon: mdi:cash-multiple
+      - entity: switch.deye_g12_optimizer_simulation_mode
+        name: Tryb Symulacji (bezpieczeństwo)
+      - entity: switch.deye_g12_optimizer_automation_active
+        name: Automatyzacja Falownika
+
+  # 4. Przycisk Natychmiastowego Przeliczenia
+  - type: button
+    name: Przelicz Plan Teraz
+    icon: mdi:calculator
+    tap_action:
+      action: call-service
+      service: deye_g12_opt.recalculate
