@@ -381,20 +381,47 @@ class DeyeExecutor:
                 "CRITICAL SAFETY VIOLATION: Attempted to write >= 1000 to register 1115!"
             )
 
+        # Standard davidrapan/ha-solarman schema uses 'address' and optional 'device'
         service_data: dict[str, Any] = {
-            "register": address,
+            "address": address,
             "values": [value],
         }
         if self.solarman_device_id:
-            service_data["device_id"] = self.solarman_device_id
+            service_data["device"] = self.solarman_device_id
 
         _LOGGER.debug("Writing Modbus register %s = %s", address, value)
-        await self.hass.services.async_call(
-            "solarman",
-            "write_multiple_registers",
-            service_data,
-            blocking=True,
-        )
+        try:
+            await self.hass.services.async_call(
+                "solarman",
+                "write_multiple_registers",
+                service_data,
+                blocking=True,
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            # Fallback if installed Solarman integration variant rejects 'address' or 'device'
+            if "extra keys not allowed" in str(exc):
+                fallback_data: dict[str, Any] = {
+                    "register": address,
+                    "values": [value],
+                }
+                if self.solarman_device_id:
+                    fallback_data["device_id"] = self.solarman_device_id
+
+                service_name = (
+                    "write_multiple_holding_registers"
+                    if self.hass.services.has_service(
+                        "solarman", "write_multiple_holding_registers"
+                    )
+                    else "write_multiple_registers"
+                )
+                await self.hass.services.async_call(
+                    "solarman",
+                    service_name,
+                    fallback_data,
+                    blocking=True,
+                )
+            else:
+                raise
 
     async def _verify_readback(self, address: int, expected_value: int) -> bool:
         """Perform read-back verification after configurable delay."""

@@ -136,7 +136,7 @@ async def test_tou_sell_bit_preservation_and_deadband(hass):
     written_registers: dict[int, int] = {}
 
     async def mock_solarman(call):
-        reg = call.data["register"]
+        reg = call.data.get("address", call.data.get("register"))
         val = call.data["values"][0]
         written_registers[reg] = val
 
@@ -225,7 +225,7 @@ async def test_remote_mode_register_writes_and_pv_safety(hass):
     written_registers: dict[int, int] = {}
 
     async def mock_solarman(call):
-        reg = call.data["register"]
+        reg = call.data.get("address", call.data.get("register"))
         val = call.data["values"][0]
         written_registers[reg] = val
 
@@ -320,7 +320,7 @@ async def test_remote_mode_boundary_shutdown(hass):
     written_registers: dict[int, int] = {}
 
     async def mock_solarman(call):
-        reg = call.data["register"]
+        reg = call.data.get("address", call.data.get("register"))
         val = call.data["values"][0]
         written_registers[reg] = val
 
