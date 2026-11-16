@@ -64,6 +64,7 @@ from .const import (
     DEFAULT_SOC_MIN,
     DEFAULT_WATCHDOG_TIMEOUT_SEC,
     DOMAIN,
+    MODE_REMOTE_RAM,
     MODE_TOU_SCHEDULE,
     PROFILE_3PH_HV,
     PROFILE_3PH_LV,
@@ -172,6 +173,11 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             strategy=config.get(CONF_OPTIMIZATION_STRATEGY, STRATEGY_MAX_CHARGE_CHEAP),
         )
 
+        raw_watchdog = int(
+            config.get(CONF_WATCHDOG_TIMEOUT_SEC, DEFAULT_WATCHDOG_TIMEOUT_SEC)
+        )
+        self.watchdog_timeout_sec = max(1800, raw_watchdog)
+
         self.executor = DeyeExecutor(
             hass=hass,
             inverter_profile=self.inverter_profile,
@@ -181,9 +187,7 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             rated_power_w=self.rated_power_w,
             soc_min=self.soc_min,
             soc_max=self.soc_max,
-            watchdog_timeout_sec=int(
-                config.get(CONF_WATCHDOG_TIMEOUT_SEC, DEFAULT_WATCHDOG_TIMEOUT_SEC)
-            ),
+            watchdog_timeout_sec=self.watchdog_timeout_sec,
             allow_battery_sell=bool(
                 config.get(CONF_ALLOW_BATTERY_SELL, DEFAULT_ALLOW_BATTERY_SELL)
             ),
@@ -194,10 +198,26 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.current_plan: PlanResult | None = None
         self.last_arbitrage_savings: float = 0.0
         self._unsub_scheduled_triggers: list[Any] = []
+        self._remote_mode_needs_rearm: bool = False
 
     async def async_setup(self) -> None:
         """Set up scheduled triggers for plan evaluation."""
         self._schedule_next_triggers()
+
+        # Auto-migrate existing entries with old watchdog timeout < 1800s to 1800s
+        saved_watchdog = self.entry.options.get(
+            CONF_WATCHDOG_TIMEOUT_SEC
+        ) or self.entry.data.get(CONF_WATCHDOG_TIMEOUT_SEC)
+        if saved_watchdog is not None and int(saved_watchdog) < 1800:
+            _LOGGER.info(
+                "Migrating watchdog_timeout_sec from %s to 1800s to bridge Modbus connection dropouts",
+                saved_watchdog,
+            )
+            self.hass.config_entries.async_update_entry(
+                self.entry,
+                options={**self.entry.options, CONF_WATCHDOG_TIMEOUT_SEC: 1800},
+            )
+
         # Immediately compute initial plan so sensors show real values on startup
         now = datetime.now(WARSAW_TZ)
         plan_type = "night" if now.hour >= 15 or now.hour < 6 else "midday"
@@ -254,8 +274,33 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             if current_soc is not None and current_soc >= 99.0:
                 self.last_full_soc_time = now
 
-            # Refresh Remote Mode watchdog if active
-            await self.executor.async_refresh_watchdog()
+            # Remote Mode watchdog maintenance and auto re-arming after connection drops
+            if self.control_mode == MODE_REMOTE_RAM and self.executor.remote_mode_active:
+                if (
+                    self._remote_mode_needs_rearm
+                    and self.current_plan
+                    and self.current_plan.grid_charge_enable
+                ):
+                    _LOGGER.info(
+                        "Modbus connection restored: Re-arming full Remote Mode charging registers on Deye inverter"
+                    )
+                    rearm_ok = await self.executor.async_apply_plan(
+                        plan=self.current_plan,
+                        tariff_calc=self.tariff,
+                        simulation_mode=self.simulation_mode,
+                        current_soc=current_soc or self.soc_min,
+                    )
+                    if rearm_ok:
+                        self._remote_mode_needs_rearm = False
+                else:
+                    refresh_ok = await self.executor.async_refresh_watchdog()
+                    if not refresh_ok:
+                        _LOGGER.warning(
+                            "Watchdog refresh failed (Modbus connection drop). Flagging for full re-arm upon reconnection."
+                        )
+                        self._remote_mode_needs_rearm = True
+            elif self.control_mode == MODE_REMOTE_RAM:
+                self._remote_mode_needs_rearm = False
 
             tariff_zone = self.tariff.get_tariff_zone(now)
 

@@ -169,3 +169,72 @@ async def test_coordinator_inactive_skips_optimization(hass: HomeAssistant):
     assert "Automation Inactive" in coordinator.executor.last_execution_status
 
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_coordinator_watchdog_auto_migration_and_rearm(hass: HomeAssistant):
+    """Test auto-migration of watchdog timeout to 1800s and re-arming after connection drop."""
+    from custom_components.deye_g12_opt.const import (
+        CONF_WATCHDOG_TIMEOUT_SEC,
+        MODE_REMOTE_RAM,
+    )
+    from custom_components.deye_g12_opt.optimizer import PlanResult
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Deye Inverter",
+        data={
+            CONF_INVERTER_PROFILE: PROFILE_3PH_LV,
+            CONF_CONTROL_MODE: MODE_REMOTE_RAM,
+            CONF_BATTERY_SOC_ENTITY: "sensor.battery_soc",
+            CONF_TOTAL_LOAD_ENTITY: "sensor.total_load",
+            CONF_BATTERY_CAPACITY_KWH: 15.0,
+            CONF_BATTERY_VOLTAGE_V: 51.2,
+            CONF_RATED_POWER_W: 15000,
+            CONF_PGE_TARIFF: TARIFF_G12W,
+            CONF_WATCHDOG_TIMEOUT_SEC: 180,  # Old value 180s
+            "readback_delay_sec": 0,
+        },
+        options={
+            CONF_WATCHDOG_TIMEOUT_SEC: 180,
+        },
+        entry_id="test_entry_watchdog_migration",
+    )
+    entry.add_to_hass(hass)
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    coordinator: DeyeG12Coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    # 1. Verify watchdog was migrated to 1800s (30 minutes)
+    assert coordinator.watchdog_timeout_sec == 1800
+    assert coordinator.executor.watchdog_timeout_sec == 1800
+    assert entry.options.get(CONF_WATCHDOG_TIMEOUT_SEC) == 1800
+
+    # 2. Test re-arm mechanism:
+    # Setup active Remote Mode with a grid charge plan
+    coordinator.executor.remote_mode_active = True
+    coordinator.current_plan = PlanResult(
+        plan_type="night",
+        soc_target=80.0,
+        charge_current_a=25,
+        grid_charge_enable=True,
+        headroom_max_soc=95.0,
+        expected_load_kwh=6.0,
+        expected_pv_kwh=1.0,
+        reason="Test",
+    )
+
+    # Simulate watchdog refresh failure (Modbus connection drop)
+    with patch.object(coordinator.executor, "async_refresh_watchdog", AsyncMock(return_value=False)):
+        await coordinator._async_update_data()
+        assert coordinator._remote_mode_needs_rearm is True
+
+    # Next update data: simulate connection restored, verify async_apply_plan (re-arm) was invoked
+    with patch.object(coordinator.executor, "async_apply_plan", AsyncMock(return_value=True)) as mock_apply:
+        await coordinator._async_update_data()
+        assert mock_apply.called
+        assert coordinator._remote_mode_needs_rearm is False
+
+    await hass.config_entries.async_unload(entry.entry_id)
+

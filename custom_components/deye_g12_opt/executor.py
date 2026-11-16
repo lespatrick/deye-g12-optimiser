@@ -68,7 +68,7 @@ class DeyeExecutor:
         self.rated_power_w = rated_power_w
         self.soc_min = soc_min
         self.soc_max = soc_max
-        self.watchdog_timeout_sec = watchdog_timeout_sec
+        self.watchdog_timeout_sec = max(1800, watchdog_timeout_sec)
         self.allow_battery_sell = allow_battery_sell
 
         self.last_written_soc: float | None = None
@@ -413,7 +413,12 @@ class DeyeExecutor:
                         if any(user_val.lower() in str(x).lower() for x in ident):
                             return dev.id
 
-            # Default: use the first (or only) Solarman device in Home Assistant
+            # Default: prefer inverter device over stick logger
+            for dev in solarman_devices:
+                name_or_model = f"{getattr(dev, 'name', '')} {getattr(dev, 'model', '')}".lower()
+                if any(k in name_or_model for k in ("inverter", "deye", "sun-", "hybrid")):
+                    return dev.id
+
             return solarman_devices[0].id
         except Exception as exc:  # pylint: disable=broad-except
             _LOGGER.debug("Error resolving Solarman device ID: %s", exc)
@@ -507,10 +512,25 @@ class DeyeExecutor:
         if device_id:
             service_data["device"] = device_id
 
-        # Patch config_entry.runtime_data if missing so solarman services.py doesn't crash with AttributeError
+        # Patch or auto-reload if solarman is missing runtime_data
+        solarman_entries = self.hass.config_entries.async_entries("solarman")
         coord = self._get_solarman_coordinator()
-        if coord is not None:
-            for entry in self.hass.config_entries.async_entries("solarman"):
+
+        if coord is None and solarman_entries:
+            for entry in solarman_entries:
+                if getattr(entry, "runtime_data", None) is None:
+                    _LOGGER.info(
+                        "Solarman entry missing runtime_data. Triggering async_reload for self-healing."
+                    )
+                    try:
+                        await self.hass.config_entries.async_reload(entry.entry_id)
+                        await asyncio.sleep(1.0)
+                        coord = self._get_solarman_coordinator()
+                    except Exception as reload_err:
+                        _LOGGER.debug("Auto-reload of solarman failed: %s", reload_err)
+
+        if coord is not None and solarman_entries:
+            for entry in solarman_entries:
                 if getattr(entry, "runtime_data", None) is None:
                     try:
                         entry.runtime_data = coord

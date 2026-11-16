@@ -239,7 +239,8 @@ async def test_remote_mode_register_writes_and_pv_safety(hass):
     )
     assert res is True
     assert written_registers.get(REG_REMOTE_ENABLE) == 1
-    assert written_registers.get(REG_REMOTE_WATCHDOG) == 180
+    # Watchdog timeout is guaranteed to be at least 1800s (30 min) to bridge Modbus dropouts
+    assert written_registers.get(REG_REMOTE_WATCHDOG) == 1800
     # Power should be negative in two's complement
     power_val = written_registers.get(REG_REMOTE_POWER)
     assert power_val is not None and power_val > 32767
@@ -249,7 +250,7 @@ async def test_remote_mode_register_writes_and_pv_safety(hass):
     # Test watchdog refresh writes specifically to 1101
     written_registers.clear()
     await executor.async_refresh_watchdog()
-    assert written_registers.get(REG_REMOTE_WATCHDOG) == 180
+    assert written_registers.get(REG_REMOTE_WATCHDOG) == 1800
 
     # Test PV guard: Attempting to write >= 1000 to 1115 raises DeyeExecutionError
     with pytest.raises(DeyeExecutionError, match="Attempted to write >= 1000 to register 1115"):
