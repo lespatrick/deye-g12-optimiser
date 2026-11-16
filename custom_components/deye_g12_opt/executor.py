@@ -376,10 +376,16 @@ class DeyeExecutor:
             solarman_entries = self.hass.config_entries.async_entries("solarman")
             entry_ids = {entry.entry_id for entry in solarman_entries}
 
+            devices_list = (
+                list(dev_reg.devices)
+                if hasattr(dev_reg.devices, "__iter__")
+                else list(dev_reg.devices.values())
+            )
+
             # Find devices linked to Solarman config entries
             solarman_devices = [
                 dev
-                for dev in dev_reg.devices.values()
+                for dev in devices_list
                 if any(cid in entry_ids for cid in dev.config_entries)
             ]
 
@@ -387,7 +393,7 @@ class DeyeExecutor:
                 # Fallback: check device identifiers
                 solarman_devices = [
                     dev
-                    for dev in dev_reg.devices.values()
+                    for dev in devices_list
                     if any("solarman" in str(ident).lower() for ident in dev.identifiers)
                 ]
 
@@ -420,43 +426,112 @@ class DeyeExecutor:
             return self.solarman_device_id
 
     def _get_solarman_coordinator(self) -> Any | None:
-        """Find the Solarman Coordinator instance from hass config entries or hass.data."""
-        try:
-            # 1. Check config entries for runtime_data
+        """Find the Solarman Coordinator instance from hass config entries, hass.data, entities, or gc."""
+        if getattr(self, "_cached_solarman_coordinator", None) is not None:
+            return self._cached_solarman_coordinator
+
+        coord = self._find_solarman_coordinator()
+        if coord is not None:
+            self._cached_solarman_coordinator = coord
+            # Also patch all solarman config entries so services.py works
             for entry in self.hass.config_entries.async_entries("solarman"):
-                runtime_data = getattr(entry, "runtime_data", None)
+                try:
+                    entry.runtime_data = coord
+                except Exception:
+                    pass
+        return coord
+
+    def _extract_coordinator(self, obj: Any) -> Any | None:
+        """Extract an object that has an execute method."""
+        if obj is None:
+            return None
+        if hasattr(obj, "execute") and callable(obj.execute):
+            return obj
+        if hasattr(obj, "device") and hasattr(obj.device, "execute") and callable(obj.device.execute):
+            return obj.device
+        if hasattr(obj, "coordinator"):
+            res = self._extract_coordinator(obj.coordinator)
+            if res is not None:
+                return res
+        if hasattr(obj, "modbus") and hasattr(obj.modbus, "execute") and callable(obj.modbus.execute):
+            return obj.modbus
+        if isinstance(obj, dict):
+            for key in ("coordinator", "device", "modbus", "client", "api"):
+                if key in obj:
+                    res = self._extract_coordinator(obj[key])
+                    if res is not None:
+                        return res
+            for val in obj.values():
+                res = self._extract_coordinator(val)
+                if res is not None:
+                    return res
+        return None
+
+    def _find_solarman_coordinator(self) -> Any | None:
+        """Deep search for Solarman Coordinator or Device."""
+        # 1. Check config entries for runtime_data
+        try:
+            for entry in self.hass.config_entries.async_entries("solarman"):
+                try:
+                    runtime_data = entry.runtime_data
+                except AttributeError:
+                    runtime_data = None
                 if runtime_data is not None:
-                    if hasattr(runtime_data, "execute"):
-                        return runtime_data
-                    if hasattr(runtime_data, "coordinator") and hasattr(
-                        runtime_data.coordinator, "execute"
-                    ):
-                        return runtime_data.coordinator
-
-            # 2. Check hass.data["solarman"]
-            solarman_data = self.hass.data.get("solarman")
-            if solarman_data is not None:
-                if isinstance(solarman_data, dict):
-                    for val in solarman_data.values():
-                        if hasattr(val, "execute"):
-                            return val
-                        if hasattr(val, "coordinator") and hasattr(val.coordinator, "execute"):
-                            return val.coordinator
-                elif hasattr(solarman_data, "execute"):
-                    return solarman_data
-                elif hasattr(solarman_data, "coordinator") and hasattr(
-                    solarman_data.coordinator, "execute"
-                ):
-                    return solarman_data.coordinator
-
-            # 3. Check all config entries in hass if domain matched loosely
-            for entry in self.hass.config_entries.async_entries():
-                if "solarman" in entry.domain.lower():
-                    runtime_data = getattr(entry, "runtime_data", None)
-                    if runtime_data is not None and hasattr(runtime_data, "execute"):
-                        return runtime_data
+                    extracted = self._extract_coordinator(runtime_data)
+                    if extracted is not None:
+                        return extracted
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.debug("Error finding Solarman coordinator: %s", exc)
+            _LOGGER.debug("Error checking solarman config entries: %s", exc)
+
+        # 2. Check hass.data for solarman entries or domain
+        try:
+            for entry in self.hass.config_entries.async_entries("solarman"):
+                extracted = self._extract_coordinator(self.hass.data.get(entry.entry_id))
+                if extracted is not None:
+                    return extracted
+
+            for key, val in list(self.hass.data.items()):
+                if "solarman" in str(key).lower():
+                    extracted = self._extract_coordinator(val)
+                    if extracted is not None:
+                        return extracted
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.debug("Error checking hass.data for solarman: %s", exc)
+
+        # 3. Check entity registry & components
+        try:
+            for domain in ("sensor", "switch", "number", "select"):
+                component = (
+                    self.hass.data.get("entity_components", {}).get(domain)
+                    or self.hass.data.get(domain)
+                )
+                if component is not None and hasattr(component, "entities"):
+                    for entity in component.entities:
+                        if (
+                            "solarman" in getattr(entity, "platform_name", "").lower()
+                            or "solarman" in str(type(entity)).lower()
+                        ):
+                            extracted = self._extract_coordinator(entity)
+                            if extracted is not None:
+                                return extracted
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.debug("Error checking entity components: %s", exc)
+
+        # 4. Fallback to Python GC: find any live Solarman Coordinator or Device in memory
+        try:
+            import gc
+
+            for obj in gc.get_objects():
+                mod = getattr(type(obj), "__module__", "")
+                name = getattr(type(obj), "__name__", "")
+                if "solarman" in mod.lower() and (
+                    "coordinator" in name.lower() or "device" in name.lower()
+                ):
+                    extracted = self._extract_coordinator(obj)
+                    if extracted is not None:
+                        return extracted
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.debug("Error checking GC for solarman coordinator: %s", exc)
 
         return None
 
@@ -499,7 +574,6 @@ class DeyeExecutor:
             )
 
         # 1. Primary method: Direct coordinator write
-        # Bypasses solarman services.py runtime_data bugs and HA service dispatch overhead
         coord = self._get_solarman_coordinator()
         if coord is not None:
             try:
@@ -545,6 +619,22 @@ class DeyeExecutor:
             )
             return
         except Exception as exc:  # pylint: disable=broad-except
+            # If service failed (e.g. AttributeError runtime_data), try direct coordinator write again (forcing GC scan)
+            if coord is None:
+                coord = self._get_solarman_coordinator()
+            if coord is not None:
+                try:
+                    direct_ok = await self._execute_coordinator_write(coord, address, value)
+                    if direct_ok:
+                        _LOGGER.info(
+                            "Direct coordinator write succeeded on recovery for register %s = %s",
+                            address,
+                            value,
+                        )
+                        return
+                except Exception as direct_exc:
+                    _LOGGER.warning("Direct coordinator recovery write failed: %s", direct_exc)
+
             # 3. Fallback: Legacy Solarman service variants (e.g. StephanJoubert)
             if "extra keys not allowed" in str(exc) or "register" in str(exc).lower():
                 fallback_data: dict[str, Any] = {
