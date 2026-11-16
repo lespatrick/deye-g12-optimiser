@@ -56,6 +56,7 @@
           "off_peak_price": "Off-Peak Energy Price (PLN/kWh)",
           "use_pessimistic_blend": "Use Solcast Pessimistic Blend (70% P50 + 30% P10)",
           "meter_fixed_winter_time": "OSD Meter Clock Fixed in Winter Time",
+          "allow_battery_sell": "Allow battery selling/export to grid (Sell Mode - default: disabled for self-consumption)",
           "readback_delay_sec": "Read-back Verification Delay (seconds)",
           "watchdog_timeout_sec": "Remote Mode Watchdog Timeout (seconds)"
         }

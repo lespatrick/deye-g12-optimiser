@@ -56,6 +56,7 @@
           "off_peak_price": "Cena energii w dolinie (PLN/kWh)",
           "use_pessimistic_blend": "Użyj pesymistycznego miksu Solcast (70% P50 + 30% P10)",
           "meter_fixed_winter_time": "Zegar licznika OSD na stałe w czasie zimowym",
+          "allow_battery_sell": "Zezwalaj na sprzedaż z baterii do sieci (Domyślnie wyłączone: tylko autokonsumpcja)",
           "readback_delay_sec": "Opóźnienie weryfikacji po zapisie (sekundy)",
           "watchdog_timeout_sec": "Limit czasu watchdog w Remote Mode (sekundy)"
         }

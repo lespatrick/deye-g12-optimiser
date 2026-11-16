@@ -10,6 +10,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_ALLOW_BATTERY_SELL,
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_VOLTAGE_V,
@@ -39,6 +40,7 @@ from .const import (
     CONF_USE_PESSIMISTIC_BLEND,
     CONF_WATCHDOG_TIMEOUT_SEC,
     CONTROL_MODES,
+    DEFAULT_ALLOW_BATTERY_SELL,
     DEFAULT_BATTERY_CAPACITY_KWH,
     DEFAULT_BATTERY_VOLTAGE_V_HV,
     DEFAULT_BATTERY_VOLTAGE_V_LV,
@@ -172,7 +174,9 @@ class DeyeG12ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # pyright: i
         data_schema = vol.Schema(
             {
                 vol.Required(
-                    CONF_BATTERY_CAPACITY_KWH, default=DEFAULT_BATTERY_CAPACITY_KWH
+                    CONF_BATTERY_CAPACITY_KWH,
+                    CONF_ALLOW_BATTERY_SELL,
+                    default=DEFAULT_BATTERY_CAPACITY_KWH,
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=1.0, max=100.0, step=0.5, unit_of_measurement="kWh"
@@ -338,6 +342,10 @@ class DeyeG12OptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_METER_FIXED_WINTER_TIME,
                     default=config.get(CONF_METER_FIXED_WINTER_TIME, False),
+                ): selector.BooleanSelector(),
+                vol.Optional(
+                    CONF_ALLOW_BATTERY_SELL,
+                    default=config.get(CONF_ALLOW_BATTERY_SELL, DEFAULT_ALLOW_BATTERY_SELL),
                 ): selector.BooleanSelector(),
                 vol.Required(
                     CONF_READBACK_DELAY_SEC,

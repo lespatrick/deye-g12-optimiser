@@ -37,6 +37,7 @@ async def test_simulation_mode_makes_no_modbus_calls(hass):
         inverter_profile=PROFILE_3PH_LV,
         control_mode=MODE_TOU_SCHEDULE,
         readback_delay_sec=0,
+        allow_battery_sell=True,
     )
     tariff = PGETariffCalculator()
 
@@ -127,6 +128,7 @@ async def test_tou_sell_bit_preservation_and_deadband(hass):
         inverter_profile=PROFILE_3PH_LV,
         control_mode=MODE_TOU_SCHEDULE,
         readback_delay_sec=0,
+        allow_battery_sell=True,
     )
     tariff = PGETariffCalculator()
     plan = PlanResult("night", 80.0, 20, True, 95.0, 8.0, 1.0, "Test")
@@ -161,6 +163,25 @@ async def test_tou_sell_bit_preservation_and_deadband(hass):
     assert written_registers.get(146) == 0xFF
     # Register 128 (grid charge current) should be 20A
     assert written_registers.get(128) == 20
+
+    # Test default allow_battery_sell=False: bit 5 (32) is stripped, only Grid charge (1) written
+    executor_no_sell = DeyeExecutor(
+        hass=hass,
+        inverter_profile=PROFILE_3PH_LV,
+        control_mode=MODE_TOU_SCHEDULE,
+        readback_delay_sec=0,
+        allow_battery_sell=False,
+    )
+    written_registers.clear()
+    res_no_sell = await executor_no_sell.async_apply_plan(
+        plan=plan,
+        tariff_calc=tariff,
+        simulation_mode=False,
+        current_soc=30.0,
+        current_slot_values=current_slots,
+    )
+    assert res_no_sell is True
+    assert written_registers.get(172) == 1  # 32 is stripped!
 
     # Now test deadband: if target is 81.0% (diff < 2) and current is 21A (diff < 2)
     written_registers.clear()
@@ -258,6 +279,7 @@ async def test_readback_retry_and_unknown_profile(hass):
         inverter_profile=PROFILE_3PH_LV,
         control_mode=MODE_TOU_SCHEDULE,
         readback_delay_sec=0,
+        allow_battery_sell=True,
     )
     verify_attempts = []
 

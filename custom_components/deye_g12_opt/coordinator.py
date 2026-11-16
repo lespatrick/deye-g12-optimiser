@@ -12,6 +12,7 @@ from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    CONF_ALLOW_BATTERY_SELL,
     CONF_BALANCING_INTERVAL_DAYS,
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_SOC_ENTITY,
@@ -42,6 +43,7 @@ from .const import (
     CONF_TOTAL_LOAD_ENTITY,
     CONF_USE_PESSIMISTIC_BLEND,
     CONF_WATCHDOG_TIMEOUT_SEC,
+    DEFAULT_ALLOW_BATTERY_SELL,
     DEFAULT_BALANCING_INTERVAL_DAYS,
     DEFAULT_BATTERY_CAPACITY_KWH,
     DEFAULT_BATTERY_VOLTAGE_V_HV,
@@ -181,6 +183,9 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             soc_max=self.soc_max,
             watchdog_timeout_sec=int(
                 config.get(CONF_WATCHDOG_TIMEOUT_SEC, DEFAULT_WATCHDOG_TIMEOUT_SEC)
+            ),
+            allow_battery_sell=bool(
+                config.get(CONF_ALLOW_BATTERY_SELL, DEFAULT_ALLOW_BATTERY_SELL)
             ),
         )
 

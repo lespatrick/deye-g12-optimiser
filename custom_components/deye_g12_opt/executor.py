@@ -10,6 +10,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    DEFAULT_ALLOW_BATTERY_SELL,
     DOMAIN,
     MODE_REMOTE_RAM,
     PROFILE_3PH_HV,
@@ -55,6 +56,7 @@ class DeyeExecutor:
         soc_min: float = 15.0,
         soc_max: float = 95.0,
         watchdog_timeout_sec: int = 180,
+        allow_battery_sell: bool = DEFAULT_ALLOW_BATTERY_SELL,
     ) -> None:
         """Initialize Deye Executor."""
         self.hass = hass
@@ -66,6 +68,7 @@ class DeyeExecutor:
         self.soc_min = soc_min
         self.soc_max = soc_max
         self.watchdog_timeout_sec = watchdog_timeout_sec
+        self.allow_battery_sell = allow_battery_sell
 
         self.last_written_soc: float | None = None
         self.last_written_current: int | None = None
@@ -225,7 +228,7 @@ class DeyeExecutor:
         target_modes: list[int] = []
         for i, reg in enumerate(mode_regs):
             curr_val = current_slot_values.get(reg, 0)
-            sell_bit = curr_val & SELL_BIT_MASK  # Preserve bit 5
+            sell_bit = (curr_val & SELL_BIT_MASK) if self.allow_battery_sell else 0
             new_mode = (charge_bits[i] & 0x03) | sell_bit
             target_modes.append(new_mode)
 
