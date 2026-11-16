@@ -6,7 +6,8 @@
   "dependencies": [],
   "after_dependencies": ["recorder", "solarman"],
   "documentation": "https://github.com/lespatrick/deye-g12-optimiser",
+  "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/lespatrick/deye-g12-optimiser/issues",
-  "version": "1.1.6"
+  "version": "1.1.7"
 }

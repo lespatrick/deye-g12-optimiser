@@ -367,6 +367,58 @@ class DeyeExecutor:
             _LOGGER.error("Failed disabling Remote Mode: %s", exc)
             return False
 
+    def _resolve_solarman_device_id(self) -> str | None:
+        """Resolve the Home Assistant device registry ID for Solarman."""
+        from homeassistant.helpers import device_registry as dr
+
+        try:
+            dev_reg = dr.async_get(self.hass)
+            solarman_entries = self.hass.config_entries.async_entries("solarman")
+            entry_ids = {entry.entry_id for entry in solarman_entries}
+
+            # Find devices linked to Solarman config entries
+            solarman_devices = [
+                dev
+                for dev in dev_reg.devices.values()
+                if any(cid in entry_ids for cid in dev.config_entries)
+            ]
+
+            if not solarman_devices:
+                # Fallback: check device identifiers
+                solarman_devices = [
+                    dev
+                    for dev in dev_reg.devices.values()
+                    if any("solarman" in str(ident).lower() for ident in dev.identifiers)
+                ]
+
+            if not solarman_devices:
+                return self.solarman_device_id
+
+            # If user provided a custom value, match it against id, serial number, or name
+            if self.solarman_device_id:
+                user_val = str(self.solarman_device_id).strip()
+                # 1. Exact match on HA internal device ID
+                for dev in solarman_devices:
+                    if dev.id == user_val:
+                        return dev.id
+                # 2. Match on serial number
+                for dev in solarman_devices:
+                    if dev.serial_number and user_val.lower() in dev.serial_number.lower():
+                        return dev.id
+                # 3. Match on identifiers or name
+                for dev in solarman_devices:
+                    if dev.name and user_val.lower() in dev.name.lower():
+                        return dev.id
+                    for ident in dev.identifiers:
+                        if any(user_val.lower() in str(x).lower() for x in ident):
+                            return dev.id
+
+            # Default: use the first (or only) Solarman device in Home Assistant
+            return solarman_devices[0].id
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.debug("Error resolving Solarman device ID: %s", exc)
+            return self.solarman_device_id
+
     async def _write_register(self, address: int, value: int) -> None:
         """Write single register using solarman.write_multiple_registers service."""
         # SAFETY CHECK FOR 3PH: Never touch 259
@@ -381,13 +433,14 @@ class DeyeExecutor:
                 "CRITICAL SAFETY VIOLATION: Attempted to write >= 1000 to register 1115!"
             )
 
-        # Standard davidrapan/ha-solarman schema uses 'address' and optional 'device'
+        # Standard davidrapan/ha-solarman schema uses 'address' and 'device' (HA device ID)
+        device_id = self._resolve_solarman_device_id()
         service_data: dict[str, Any] = {
             "address": address,
             "values": [value],
         }
-        if self.solarman_device_id:
-            service_data["device"] = self.solarman_device_id
+        if device_id:
+            service_data["device"] = device_id
 
         _LOGGER.debug("Writing Modbus register %s = %s", address, value)
         try:
