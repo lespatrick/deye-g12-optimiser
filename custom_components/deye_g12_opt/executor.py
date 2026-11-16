@@ -376,26 +376,16 @@ class DeyeExecutor:
             solarman_entries = self.hass.config_entries.async_entries("solarman")
             entry_ids = {entry.entry_id for entry in solarman_entries}
 
-            devices_list = (
-                list(dev_reg.devices)
-                if hasattr(dev_reg.devices, "__iter__")
-                else list(dev_reg.devices.values())
-            )
-
-            # Find devices linked to Solarman config entries
-            solarman_devices = [
-                dev
-                for dev in devices_list
-                if any(cid in entry_ids for cid in dev.config_entries)
-            ]
+            solarman_devices: list[Any] = []
+            for entry_id in entry_ids:
+                solarman_devices.extend(dr.async_entries_for_config_entry(dev_reg, entry_id))
 
             if not solarman_devices:
                 # Fallback: check device identifiers
-                solarman_devices = [
-                    dev
-                    for dev in devices_list
-                    if any("solarman" in str(ident).lower() for ident in dev.identifiers)
-                ]
+                devs = dev_reg.devices.values() if hasattr(dev_reg.devices, "values") else dev_reg.devices
+                for dev in devs:
+                    if hasattr(dev, "identifiers") and any("solarman" in str(ident).lower() for ident in dev.identifiers):
+                        solarman_devices.append(dev)
 
             if not solarman_devices:
                 return self.solarman_device_id
@@ -403,19 +393,19 @@ class DeyeExecutor:
             # If user provided a custom value, match it against id, serial number, or name
             if self.solarman_device_id:
                 user_val = str(self.solarman_device_id).strip()
-                # 1. Exact match on HA internal device ID
-                for dev in solarman_devices:
-                    if dev.id == user_val:
-                        return dev.id
+                # 1. Exact match on HA internal device ID in registry
+                if dev_reg.async_get(user_val) is not None:
+                    return user_val
+
                 # 2. Match on serial number
                 for dev in solarman_devices:
-                    if dev.serial_number and user_val.lower() in dev.serial_number.lower():
+                    if getattr(dev, "serial_number", None) and user_val.lower() in dev.serial_number.lower():
                         return dev.id
                 # 3. Match on identifiers or name
                 for dev in solarman_devices:
-                    if dev.name and user_val.lower() in dev.name.lower():
+                    if getattr(dev, "name", None) and user_val.lower() in dev.name.lower():
                         return dev.id
-                    for ident in dev.identifiers:
+                    for ident in getattr(dev, "identifiers", ()):
                         if any(user_val.lower() in str(x).lower() for x in ident):
                             return dev.id
 
