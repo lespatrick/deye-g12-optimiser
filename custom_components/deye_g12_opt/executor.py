@@ -485,7 +485,7 @@ class DeyeExecutor:
                 return True
 
     async def _write_register(self, address: int, value: int) -> None:
-        """Write single register using solarman.write_multiple_registers service."""
+        """Write single register using direct coordinator execution or solarman services."""
         # SAFETY CHECK FOR 3PH: Never touch 259
         if self.inverter_profile in (PROFILE_3PH_LV, PROFILE_3PH_HV) and address == 259:
             raise DeyeExecutionError(
@@ -498,7 +498,26 @@ class DeyeExecutor:
                 "CRITICAL SAFETY VIOLATION: Attempted to write >= 1000 to register 1115!"
             )
 
-        # Standard davidrapan/ha-solarman schema uses 'address' and 'device' (HA device ID)
+        # 1. Primary method: Direct coordinator write
+        # Bypasses solarman services.py runtime_data bugs and HA service dispatch overhead
+        coord = self._get_solarman_coordinator()
+        if coord is not None:
+            try:
+                direct_ok = await self._execute_coordinator_write(coord, address, value)
+                if direct_ok:
+                    _LOGGER.debug(
+                        "Modbus write directly via coordinator succeeded for register %s = %s",
+                        address,
+                        value,
+                    )
+                    return
+            except Exception as direct_exc:  # pylint: disable=broad-except
+                _LOGGER.debug(
+                    "Direct coordinator write failed (%s), falling back to service call",
+                    direct_exc,
+                )
+
+        # 2. Fallback: Standard davidrapan/ha-solarman service
         device_id = self._resolve_solarman_device_id()
         service_data: dict[str, Any] = {
             "address": address,
@@ -507,8 +526,7 @@ class DeyeExecutor:
         if device_id:
             service_data["device"] = device_id
 
-        # Patch config_entry.runtime_data if missing so solarman services.py doesn't crash with AttributeError
-        coord = self._get_solarman_coordinator()
+        # Also patch config_entry.runtime_data if missing to help solarman services.py
         if coord is not None:
             for entry in self.hass.config_entries.async_entries("solarman"):
                 if getattr(entry, "runtime_data", None) is None:
@@ -517,7 +535,7 @@ class DeyeExecutor:
                     except Exception as err:
                         _LOGGER.debug("Could not patch config_entry.runtime_data: %s", err)
 
-        _LOGGER.debug("Writing Modbus register %s = %s", address, value)
+        _LOGGER.debug("Writing Modbus register %s = %s via service call", address, value)
         try:
             await self.hass.services.async_call(
                 "solarman",
@@ -527,27 +545,7 @@ class DeyeExecutor:
             )
             return
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.warning(
-                "solarman.write_multiple_registers service call failed for register %s = %s: %s. Attempting fallback.",
-                address,
-                value,
-                exc,
-            )
-            # Fallback 1: Direct coordinator execution if service failed (e.g. AttributeError or ServiceValidationError)
-            if coord is not None:
-                try:
-                    direct_ok = await self._execute_coordinator_write(coord, address, value)
-                    if direct_ok:
-                        _LOGGER.info(
-                            "Direct coordinator write succeeded for register %s = %s",
-                            address,
-                            value,
-                        )
-                        return
-                except Exception as direct_exc:
-                    _LOGGER.warning("Direct coordinator execution failed: %s", direct_exc)
-
-            # Fallback 2: Legacy Solarman service variants (e.g. StephanJoubert)
+            # 3. Fallback: Legacy Solarman service variants (e.g. StephanJoubert)
             if "extra keys not allowed" in str(exc) or "register" in str(exc).lower():
                 fallback_data: dict[str, Any] = {
                     "register": address,
@@ -571,6 +569,12 @@ class DeyeExecutor:
                 )
                 return
 
+            _LOGGER.error(
+                "Failed to write Modbus register %s = %s via all mechanisms: %s",
+                address,
+                value,
+                exc,
+            )
             raise
 
     async def _verify_readback(self, address: int, expected_value: int) -> bool:
