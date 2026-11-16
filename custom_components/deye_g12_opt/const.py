@@ -11,6 +11,11 @@ MODE_TOU_SCHEDULE: Final = "tou_schedule"
 MODE_REMOTE_RAM: Final = "remote_mode_ram"
 CONTROL_MODES: Final = [MODE_TOU_SCHEDULE, MODE_REMOTE_RAM]
 
+# Optimization Strategies
+STRATEGY_MAX_CHARGE_CHEAP: Final = "max_charge_cheap"
+STRATEGY_LEAN_PEAK_COVER: Final = "lean_peak_cover"
+OPTIMIZATION_STRATEGIES: Final = [STRATEGY_MAX_CHARGE_CHEAP, STRATEGY_LEAN_PEAK_COVER]
+
 # Hardware Profiles
 PROFILE_1PH_LV: Final = "1ph_lv"
 PROFILE_3PH_LV: Final = "3ph_lv"
@@ -102,6 +107,7 @@ TOU_REGISTERS: Final[dict[str, dict[str, int | list[int]]]] = {
 # Configuration Keys
 CONF_INVERTER_PROFILE: Final = "inverter_profile"
 CONF_CONTROL_MODE: Final = "control_mode"
+CONF_OPTIMIZATION_STRATEGY: Final = "optimization_strategy"
 CONF_SOLARMAN_DEVICE_ID: Final = "solarman_device_id"
 
 CONF_BATTERY_SOC_ENTITY: Final = "battery_soc_entity"
@@ -142,7 +148,7 @@ DEFAULT_BATTERY_VOLTAGE_V_LV: Final = 51.2
 DEFAULT_BATTERY_VOLTAGE_V_HV: Final = 307.2
 DEFAULT_RATED_POWER_W: Final = 15000
 DEFAULT_SOC_MIN: Final = 15.0
-DEFAULT_SOC_MAX: Final = 95.0
+DEFAULT_SOC_MAX: Final = 100.0
 DEFAULT_ETA_CHG: Final = 0.94
 DEFAULT_ETA_DIS: Final = 0.94
 DEFAULT_ETA_PV: Final = 0.97

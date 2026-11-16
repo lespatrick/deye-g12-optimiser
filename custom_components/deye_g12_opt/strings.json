@@ -41,6 +41,7 @@
       "init": {
         "title": "Deye G12 Optimizer Options",
         "data": {
+          "optimization_strategy": "Charging Strategy",
           "control_mode": "Control Mode",
           "soc_min": "Minimum Reserve SOC (%)",
           "soc_max": "Maximum Grid Charge SOC (%)",
@@ -61,6 +62,12 @@
     }
   },
   "selector": {
+    "optimization_strategy": {
+      "options": {
+        "max_charge_cheap": "Keep Batteries Full (100%) as Cheaply as Possible (Recommended)",
+        "lean_peak_cover": "Lean Peak Cover Only (Minimal overnight charge)"
+      }
+    },
     "inverter_profile": {
       "options": {
         "3ph_lv": "Three-Phase Low Voltage (SUN-8/10/12/15K-SG04/SG05LP3)",

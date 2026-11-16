@@ -18,6 +18,7 @@ from .const import (
     DEFAULT_SAFETY_PV,
     DEFAULT_SOC_MAX,
     DEFAULT_SOC_MIN,
+    STRATEGY_MAX_CHARGE_CHEAP,
 )
 
 
@@ -31,8 +32,8 @@ class PlanResult:
     """Result of optimization plan calculation."""
 
     plan_type: str  # "night" or "midday"
-    soc_target: float  # Percentage (e.g. 77.0)
-    charge_current_a: int  # Amperes (e.g. 23)
+    soc_target: float  # Percentage (e.g. 80.0)
+    charge_current_a: int  # Amperes (e.g. 25)
     grid_charge_enable: bool  # True if grid charging is needed
     headroom_max_soc: float  # Max SOC to reserve room for PV surplus
     expected_load_kwh: float
@@ -57,6 +58,7 @@ class DeyeG12Optimizer:
         safety_load: float = DEFAULT_SAFETY_LOAD,
         min_charge_current_a: int = DEFAULT_MIN_CHARGE_CURRENT_A_LV,
         max_user_charge_current_a: int = DEFAULT_MAX_USER_CHARGE_CURRENT_A,
+        strategy: str = STRATEGY_MAX_CHARGE_CHEAP,
     ) -> None:
         """Initialize the optimization model."""
         self.battery_capacity_kwh = battery_capacity_kwh
@@ -71,6 +73,7 @@ class DeyeG12Optimizer:
         self.safety_load = safety_load
         self.min_charge_current_a = min_charge_current_a
         self.max_user_charge_current_a = max_user_charge_current_a
+        self.strategy = strategy
 
     def calculate_night_plan(
         self,
@@ -115,14 +118,78 @@ class DeyeG12Optimizer:
                 reason="BMS cell balancing cycle (100% target)",
             )
 
-        # 3. Standard Night Optimization
         pv_eff = max(0.0, e_pv_am) * self.safety_pv
         load_eff = max(0.0, e_load_am) * self.safety_load
 
+        # --- STRATEGY 1: Keep Batteries Full as Cheaply as Possible (Default) ---
+        if self.strategy == STRATEGY_MAX_CHARGE_CHEAP:
+            # Calculate net solar surplus expected during tomorrow's daylight hours
+            e_surplus_ac = max(0.0, pv_eff - load_eff)
+            e_surplus_dc = e_surplus_ac * self.eta_pv * self.eta_chg
+
+            # Reserve headroom so solar is never clipped or wasted
+            soc_headroom_pct = (e_surplus_dc / max(0.1, self.battery_capacity_kwh)) * 100.0
+            # Target is 100% (or soc_max) minus only the headroom needed for solar
+            soc_target = float(
+                round(
+                    _clip(
+                        self.soc_max_pct - soc_headroom_pct,
+                        self.soc_min_pct,
+                        self.soc_max_pct,
+                    )
+                )
+            )
+            headroom_soc = float(
+                round(max(self.soc_min_pct, self.soc_max_pct - soc_headroom_pct), 1)
+            )
+
+            # Deadband check: if current SOC already meets or exceeds target
+            if (soc_target - soc_now) < 2.0:
+                return PlanResult(
+                    plan_type="night",
+                    soc_target=soc_target,
+                    charge_current_a=self.min_charge_current_a,
+                    grid_charge_enable=False,
+                    headroom_max_soc=headroom_soc,
+                    expected_load_kwh=e_load_am,
+                    expected_pv_kwh=e_pv_am,
+                    reason=(
+                        f"Current SOC ({soc_now:.1f}%) meets target ({soc_target:.0f}%). "
+                        f"Expected solar ({e_pv_am:.1f} kWh) will fill to {self.soc_max_pct:.0f}%"
+                    ),
+                )
+
+            # Calculate charging current to reach target over 7.5h
+            t_eff_hours = 7.5
+            e_chg_dc = ((soc_target - soc_now) / 100.0) * self.battery_capacity_kwh
+            p_chg_dc_w = (e_chg_dc * 1000.0) / t_eff_hours
+            raw_current_a = math.ceil(p_chg_dc_w / max(1.0, self.battery_voltage_v))
+            i_chg = int(
+                _clip(
+                    float(raw_current_a),
+                    float(self.min_charge_current_a),
+                    float(allowed_max_current),
+                )
+            )
+
+            return PlanResult(
+                plan_type="night",
+                soc_target=soc_target,
+                charge_current_a=i_chg,
+                grid_charge_enable=True,
+                headroom_max_soc=headroom_soc,
+                expected_load_kwh=e_load_am,
+                expected_pv_kwh=e_pv_am,
+                reason=(
+                    f"Cheap grid charge to {soc_target:.0f}% @ {i_chg}A. "
+                    f"Expected solar ({e_pv_am:.1f} kWh) will top up to {self.soc_max_pct:.0f}%"
+                ),
+            )
+
+        # --- STRATEGY 2: Lean Peak Cover (Legacy) ---
         e_def_ac = max(0.0, load_eff - pv_eff)
         e_req_dc = e_def_ac / max(0.01, self.eta_dis)
 
-        # PV Headroom Reservation
         e_surplus_dc = max(0.0, (pv_eff - load_eff) * self.eta_pv)
         soc_headroom_max = _clip(
             self.soc_max_pct - (e_surplus_dc / self.battery_capacity_kwh) * 100.0,
@@ -135,7 +202,6 @@ class DeyeG12Optimizer:
             round(_clip(min(soc_raw, soc_headroom_max), self.soc_min_pct, self.soc_max_pct))
         )
 
-        # Deadband check: if target doesn't require >= 2% additional charge
         if (soc_target - soc_now) < 2.0:
             return PlanResult(
                 plan_type="night",
@@ -148,14 +214,15 @@ class DeyeG12Optimizer:
                 reason=f"Current SOC ({soc_now:.1f}%) meets target ({soc_target:.0f}%), grid charge disabled",
             )
 
-        # Calculate required charging power and current over 7.5h
         t_eff_hours = 7.5
         e_chg_dc = ((soc_target - soc_now) / 100.0) * self.battery_capacity_kwh
         p_chg_dc_w = (e_chg_dc * 1000.0) / t_eff_hours
         raw_current_a = math.ceil(p_chg_dc_w / max(1.0, self.battery_voltage_v))
         i_chg = int(
             _clip(
-                float(raw_current_a), float(self.min_charge_current_a), float(allowed_max_current)
+                float(raw_current_a),
+                float(self.min_charge_current_a),
+                float(allowed_max_current),
             )
         )
 
@@ -201,13 +268,62 @@ class DeyeG12Optimizer:
         pv_eff = max(0.0, e_pv_pm) * self.safety_pv
         load_eff = max(0.0, e_load_pm) * self.safety_load
 
+        # Target: Enter evening peak at 100% (or soc_max)
+        if self.strategy == STRATEGY_MAX_CHARGE_CHEAP:
+            # Remaining afternoon solar will add:
+            e_remaining_pv_dc = max(0.0, pv_eff - load_eff) * self.eta_pv * self.eta_chg
+            soc_remaining_pv = (e_remaining_pv_dc / max(0.1, self.battery_capacity_kwh)) * 100.0
+            soc_target = float(
+                round(
+                    _clip(
+                        self.soc_max_pct - soc_remaining_pv,
+                        self.soc_min_pct,
+                        self.soc_max_pct,
+                    )
+                )
+            )
+
+            if (soc_target - soc_now) < 2.0:
+                return PlanResult(
+                    plan_type="midday",
+                    soc_target=max(soc_now, soc_target),
+                    charge_current_a=self.min_charge_current_a,
+                    grid_charge_enable=False,
+                    headroom_max_soc=self.soc_max_pct,
+                    expected_load_kwh=e_load_pm,
+                    expected_pv_kwh=e_pv_pm,
+                    reason=f"Current SOC ({soc_now:.1f}%) sufficient to enter evening peak near 100%",
+                )
+
+            t_eff_hours = 1.75
+            e_chg_dc = ((soc_target - soc_now) / 100.0) * self.battery_capacity_kwh
+            p_chg_dc_w = (e_chg_dc * 1000.0) / t_eff_hours
+            raw_current_a = math.ceil(p_chg_dc_w / max(1.0, self.battery_voltage_v))
+            i_chg = int(
+                _clip(
+                    float(raw_current_a),
+                    float(self.min_charge_current_a),
+                    float(allowed_max_current),
+                )
+            )
+
+            return PlanResult(
+                plan_type="midday",
+                soc_target=soc_target,
+                charge_current_a=i_chg,
+                grid_charge_enable=True,
+                headroom_max_soc=self.soc_max_pct,
+                expected_load_kwh=e_load_pm,
+                expected_pv_kwh=e_pv_pm,
+                reason=f"Midday cheap top-up to {soc_target:.0f}% @ {i_chg}A for evening peak cover",
+            )
+
+        # Lean peak cover strategy (legacy)
         e_def_ac = max(0.0, load_eff - pv_eff)
         e_req_dc = e_def_ac / max(0.01, self.eta_dis)
 
         soc_raw = self.soc_min_pct + (e_req_dc / self.battery_capacity_kwh) * 100.0
         soc_target = float(round(_clip(soc_raw, self.soc_min_pct, self.soc_max_pct)))
-
-        # During midday, preserve battery if current SOC is already above target
         effective_slot_soc = max(soc_now, soc_target)
 
         if (soc_target - soc_now) < 2.0:
@@ -228,7 +344,9 @@ class DeyeG12Optimizer:
         raw_current_a = math.ceil(p_chg_dc_w / max(1.0, self.battery_voltage_v))
         i_chg = int(
             _clip(
-                float(raw_current_a), float(self.min_charge_current_a), float(allowed_max_current)
+                float(raw_current_a),
+                float(self.min_charge_current_a),
+                float(allowed_max_current),
             )
         )
 

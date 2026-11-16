@@ -41,6 +41,7 @@
       "init": {
         "title": "Opcje optymalizatora Deye G12",
         "data": {
+          "optimization_strategy": "Strategia ładowania",
           "control_mode": "Tryb sterowania",
           "soc_min": "Minimalny rezerwowy SOC (%)",
           "soc_max": "Maksymalny docelowy SOC z sieci (%)",
@@ -61,6 +62,12 @@
     }
   },
   "selector": {
+    "optimization_strategy": {
+      "options": {
+        "max_charge_cheap": "Utrzymuj akumulatory naładowane do 100% jak najtaniej (Zalecane)",
+        "lean_peak_cover": "Tylko pokrycie szczytu (Minimalistyczne ładowanie w nocy)"
+      }
+    },
     "inverter_profile": {
       "options": {
         "3ph_lv": "Trójfazowy Niskonapięciowy (SUN-8/10/12/15K-SG04/SG05LP3)",

@@ -23,6 +23,7 @@ from .const import (
     CONF_MAX_USER_CHARGE_CURRENT_A,
     CONF_METER_FIXED_WINTER_TIME,
     CONF_OFF_PEAK_PRICE,
+    CONF_OPTIMIZATION_STRATEGY,
     CONF_PEAK_PRICE,
     CONF_PGE_SEASONAL_SHIFT,
     CONF_PGE_TARIFF,
@@ -57,8 +58,10 @@ from .const import (
     DOMAIN,
     INVERTER_PROFILES,
     MODE_TOU_SCHEDULE,
+    OPTIMIZATION_STRATEGIES,
     PROFILE_3PH_HV,
     PROFILE_3PH_LV,
+    STRATEGY_MAX_CHARGE_CHEAP,
     TARIFF_G12W,
     TARIFF_VARIANTS,
 )
@@ -232,6 +235,16 @@ class DeyeG12OptionsFlowHandler(config_entries.OptionsFlow):
 
         data_schema = vol.Schema(
             {
+                vol.Required(
+                    CONF_OPTIMIZATION_STRATEGY,
+                    default=config.get(CONF_OPTIMIZATION_STRATEGY, STRATEGY_MAX_CHARGE_CHEAP),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=OPTIMIZATION_STRATEGIES,
+                        translation_key="optimization_strategy",
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Required(
                     CONF_CONTROL_MODE,
                     default=config.get(CONF_CONTROL_MODE, MODE_TOU_SCHEDULE),

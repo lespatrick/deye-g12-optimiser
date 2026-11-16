@@ -27,6 +27,7 @@ from .const import (
     CONF_METER_FIXED_WINTER_TIME,
     CONF_MIN_CHARGE_CURRENT_A,
     CONF_OFF_PEAK_PRICE,
+    CONF_OPTIMIZATION_STRATEGY,
     CONF_PEAK_PRICE,
     CONF_PGE_SEASONAL_SHIFT,
     CONF_PGE_TARIFF,
@@ -64,6 +65,7 @@ from .const import (
     MODE_TOU_SCHEDULE,
     PROFILE_3PH_HV,
     PROFILE_3PH_LV,
+    STRATEGY_MAX_CHARGE_CHEAP,
     TARIFF_G12W,
 )
 from .executor import DeyeExecutor
@@ -165,6 +167,7 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             safety_load=float(config.get(CONF_SAFETY_LOAD, DEFAULT_SAFETY_LOAD)),
             min_charge_current_a=self.min_charge_current_a,
             max_user_charge_current_a=self.max_user_charge_current_a,
+            strategy=config.get(CONF_OPTIMIZATION_STRATEGY, STRATEGY_MAX_CHARGE_CHEAP),
         )
 
         self.executor = DeyeExecutor(

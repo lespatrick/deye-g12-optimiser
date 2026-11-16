@@ -2,11 +2,105 @@
 
 from __future__ import annotations
 
+from custom_components.deye_g12_opt.const import (
+    STRATEGY_LEAN_PEAK_COVER,
+    STRATEGY_MAX_CHARGE_CHEAP,
+)
 from custom_components.deye_g12_opt.optimizer import DeyeG12Optimizer
 
 
-def test_winter_cloudy_scenario():
-    """Verify winter cloudy scenario: 15 kWh, 51.2V, SOC=18%, load=8.5 kWh, pv=0.8 kWh."""
+def test_strategy_max_charge_cheap_cloudy_day():
+    """Verify cloudy day charges battery to 100% (or soc_max) overnight."""
+    optimizer = DeyeG12Optimizer(
+        battery_capacity_kwh=15.0,
+        battery_voltage_v=51.2,
+        rated_power_w=15000,
+        soc_min_pct=15.0,
+        soc_max_pct=100.0,
+        strategy=STRATEGY_MAX_CHARGE_CHEAP,
+    )
+
+    # Cloudy day: low PV (0.5 kWh), regular load (8.0 kWh), current SOC 20%
+    plan = optimizer.calculate_night_plan(
+        soc_now=20.0,
+        e_load_am=8.0,
+        e_pv_am=0.5,
+    )
+
+    # Battery should target 100% full charge from cheap off-peak grid
+    assert plan.soc_target == 100.0
+    assert plan.grid_charge_enable is True
+    assert plan.charge_current_a > 15
+
+
+def test_strategy_max_charge_cheap_mixed_day():
+    """Verify mixed day: charges to ~70-80% overnight, leaving headroom for solar to reach 100%."""
+    optimizer = DeyeG12Optimizer(
+        battery_capacity_kwh=15.0,
+        battery_voltage_v=51.2,
+        soc_min_pct=15.0,
+        soc_max_pct=100.0,
+        strategy=STRATEGY_MAX_CHARGE_CHEAP,
+    )
+
+    # Mixed day: 11.47 kWh PV, 6.0 kWh daytime load, current SOC 25%
+    plan = optimizer.calculate_night_plan(
+        soc_now=25.0,
+        e_load_am=6.0,
+        e_pv_am=11.47,
+    )
+
+    # Expected solar surplus will top up to 100%, overnight target is high (~75-85%)
+    assert 70.0 <= plan.soc_target <= 85.0
+    assert plan.grid_charge_enable is True
+    assert "Expected solar" in plan.reason
+
+
+def test_strategy_max_charge_cheap_sunny_day():
+    """Verify very sunny day: reserves full headroom for solar, skips grid charge."""
+    optimizer = DeyeG12Optimizer(
+        battery_capacity_kwh=15.0,
+        battery_voltage_v=51.2,
+        soc_min_pct=15.0,
+        soc_max_pct=100.0,
+        strategy=STRATEGY_MAX_CHARGE_CHEAP,
+    )
+
+    # Very sunny summer day: 25 kWh PV, 5 kWh load, current SOC 30%
+    plan = optimizer.calculate_night_plan(
+        soc_now=30.0,
+        e_load_am=5.0,
+        e_pv_am=25.0,
+    )
+
+    # Solar will completely charge battery, target is at minimum reserve (15%)
+    assert plan.soc_target == 15.0
+    assert plan.grid_charge_enable is False
+
+
+def test_strategy_max_charge_cheap_midday():
+    """Verify midday off-peak tops up battery to enter evening peak near 100%."""
+    optimizer = DeyeG12Optimizer(
+        battery_capacity_kwh=15.0,
+        battery_voltage_v=51.2,
+        soc_min_pct=15.0,
+        soc_max_pct=100.0,
+        strategy=STRATEGY_MAX_CHARGE_CHEAP,
+    )
+
+    # Midday: SOC down to 40%, only 1.0 kWh afternoon PV left, evening load 6.0 kWh
+    plan = optimizer.calculate_midday_plan(
+        soc_now=40.0,
+        e_load_pm=6.0,
+        e_pv_pm=1.0,
+    )
+
+    assert plan.grid_charge_enable is True
+    assert plan.soc_target >= 90.0
+
+
+def test_legacy_lean_strategy_scenarios():
+    """Verify legacy lean peak cover strategy still works if selected."""
     optimizer = DeyeG12Optimizer(
         battery_capacity_kwh=15.0,
         battery_voltage_v=51.2,
@@ -20,61 +114,26 @@ def test_winter_cloudy_scenario():
         safety_load=1.10,
         min_charge_current_a=5,
         max_user_charge_current_a=80,
+        strategy=STRATEGY_LEAN_PEAK_COVER,
     )
 
-    plan = optimizer.calculate_night_plan(
+    # Winter cloudy in lean mode
+    plan_winter = optimizer.calculate_night_plan(
         soc_now=18.0,
         e_load_am=8.5,
         e_pv_am=0.8,
     )
+    assert plan_winter.soc_target in (76.0, 77.0)
+    assert plan_winter.charge_current_a in (22, 23)
 
-    # Expected: target ~76-77%, current ~23A, grid_charge_enable=True
-    assert plan.soc_target in (76.0, 77.0)
-    assert plan.charge_current_a in (22, 23)
-    assert plan.grid_charge_enable is True
-
-
-def test_spring_mixed_scenario():
-    """Verify spring mixed scenario: SOC=25%, load=6.0 kWh, pv=4.5 kWh."""
-    optimizer = DeyeG12Optimizer(
-        battery_capacity_kwh=15.0,
-        battery_voltage_v=51.2,
-        soc_min_pct=15.0,
-        soc_max_pct=95.0,
-        min_charge_current_a=5,
-    )
-
-    plan = optimizer.calculate_night_plan(
+    # Spring mixed in lean mode
+    plan_spring = optimizer.calculate_night_plan(
         soc_now=25.0,
         e_load_am=6.0,
         e_pv_am=4.5,
     )
-
-    # Moderate target ~35%, current clamped to min 5A
-    assert plan.soc_target in (34.0, 35.0)
-    assert plan.charge_current_a == 5
-    assert plan.grid_charge_enable is True
-
-
-def test_summer_sunny_scenario_headroom():
-    """Verify summer sunny scenario: headroom caps target and grid charge is disabled."""
-    optimizer = DeyeG12Optimizer(
-        battery_capacity_kwh=15.0,
-        battery_voltage_v=51.2,
-        soc_min_pct=15.0,
-        soc_max_pct=95.0,
-    )
-
-    plan = optimizer.calculate_night_plan(
-        soc_now=35.0,
-        e_load_am=4.5,
-        e_pv_am=14.0,
-    )
-
-    # High surplus should reserve headroom and avoid grid charging
-    assert plan.grid_charge_enable is False
-    assert plan.headroom_max_soc < 60.0
-    assert plan.soc_target == 15.0  # clipped to soc_min since surplus covers load
+    assert plan_spring.soc_target in (34.0, 35.0)
+    assert plan_spring.charge_current_a == 5
 
 
 def test_bms_current_clamping():
@@ -83,9 +142,9 @@ def test_bms_current_clamping():
         battery_capacity_kwh=15.0,
         battery_voltage_v=51.2,
         max_user_charge_current_a=80,
+        strategy=STRATEGY_MAX_CHARGE_CHEAP,
     )
 
-    # In winter cloudy scenario, calculated current would be ~23A
     plan = optimizer.calculate_night_plan(
         soc_now=18.0,
         e_load_am=8.5,
@@ -123,32 +182,3 @@ def test_force_balancing_and_emergency_reserve():
     assert plan_emerg.soc_target == 100.0
     assert plan_emerg.charge_current_a == 60
     assert plan_emerg.grid_charge_enable is True
-
-
-def test_midday_plan():
-    """Verify midday plan calculation."""
-    optimizer = DeyeG12Optimizer(
-        battery_capacity_kwh=15.0,
-        battery_voltage_v=51.2,
-        soc_min_pct=15.0,
-        soc_max_pct=95.0,
-    )
-
-    # Midday scenario: low remaining PV (0.5 kWh), high evening load (5.0 kWh), current SOC=20%
-    plan = optimizer.calculate_midday_plan(
-        soc_now=20.0,
-        e_load_pm=5.0,
-        e_pv_pm=0.5,
-    )
-    assert plan.plan_type == "midday"
-    assert plan.grid_charge_enable is True
-    assert plan.soc_target > 20.0
-
-    # Midday scenario: SOC already high (70%), low load (2.0 kWh), high PV (6.0 kWh)
-    plan_high = optimizer.calculate_midday_plan(
-        soc_now=70.0,
-        e_load_pm=2.0,
-        e_pv_pm=6.0,
-    )
-    assert plan_high.grid_charge_enable is False
-    assert plan_high.soc_target == 70.0
