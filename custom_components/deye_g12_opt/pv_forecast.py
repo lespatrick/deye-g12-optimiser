@@ -55,12 +55,24 @@ class PVForecastParser:
         if not entity_id and state_override is None:
             return (0.0, False)
 
+        actual_entity_id = entity_id
+        if hass is not None and entity_id is not None and state_override is None:
+            now_date = datetime.now(WARSAW_TZ).date()
+            if start_dt.date() > now_date and "today" in entity_id.lower():
+                candidate = entity_id.lower().replace("today", "tomorrow")
+                if hass.states.get(candidate):
+                    actual_entity_id = candidate
+            elif start_dt.date() <= now_date and "tomorrow" in entity_id.lower():
+                candidate = entity_id.lower().replace("tomorrow", "today")
+                if hass.states.get(candidate):
+                    actual_entity_id = candidate
+
         state: State | None = state_override
-        if state is None and hass is not None and entity_id is not None:
-            state = hass.states.get(entity_id)
+        if state is None and hass is not None and actual_entity_id is not None:
+            state = hass.states.get(actual_entity_id)
 
         if state is None or state.state in (None, "", "unknown", "unavailable"):
-            _LOGGER.warning("PV forecast entity %s unavailable or unknown", entity_id)
+            _LOGGER.warning("PV forecast entity %s unavailable or unknown", actual_entity_id or entity_id)
             return (0.0, False)
 
         attrs = state.attributes or {}
@@ -74,11 +86,11 @@ class PVForecastParser:
             or attrs.get("detailed_hourly")
         )
         if isinstance(detailed_forecast, list) and detailed_forecast:
-            energy = self._parse_solcast(detailed_forecast, start_dt, end_dt)
-            if energy > 0.0:
+            energy, matched = self._parse_solcast(detailed_forecast, start_dt, end_dt)
+            if matched:
                 return (max(0.0, round(energy, 3)), True)
 
-        # Sibling entity resolution (e.g. today <-> tomorrow if detailedForecast was date-constrained)
+        # Sibling entity resolution (fallback if candidate wasn't picked or didn't match window)
         if hass is not None and entity_id is not None:
             now_date = datetime.now(WARSAW_TZ).date()
             sibling_id: str | None = None
@@ -87,7 +99,7 @@ class PVForecastParser:
             elif start_dt.date() <= now_date and "tomorrow" in entity_id.lower():
                 sibling_id = entity_id.lower().replace("tomorrow", "today")
 
-            if sibling_id and sibling_id != entity_id:
+            if sibling_id and sibling_id != actual_entity_id:
                 sibling_state = hass.states.get(sibling_id)
                 if sibling_state and sibling_state.state not in (
                     None,
@@ -101,10 +113,12 @@ class PVForecastParser:
                         sib_attrs.get("detailedForecast")
                         or sib_attrs.get("detailed_forecast")
                         or sib_attrs.get("forecasts")
+                        or sib_attrs.get("detailedHourly")
+                        or sib_attrs.get("detailed_hourly")
                     )
                     if isinstance(sib_detailed, list) and sib_detailed:
-                        sib_energy = self._parse_solcast(sib_detailed, start_dt, end_dt)
-                        if sib_energy > 0.0:
+                        sib_energy, sib_matched = self._parse_solcast(sib_detailed, start_dt, end_dt)
+                        if sib_matched:
                             return (max(0.0, round(sib_energy, 3)), True)
 
                     # Otherwise try generic fallback on sibling state
@@ -124,9 +138,30 @@ class PVForecastParser:
 
     def _parse_solcast(
         self, forecast_list: list[dict[str, Any]], start_dt: datetime, end_dt: datetime
-    ) -> float:
-        """Parse Solcast detailedForecast list with 30-min intervals."""
+    ) -> tuple[float, bool]:
+        """Parse Solcast detailedForecast / detailedHourly list with automatic step duration."""
         total_kwh = 0.0
+        matched = False
+
+        step_hours = 0.5
+        if len(forecast_list) >= 2:
+            try:
+                t0 = _to_aware_datetime(
+                    forecast_list[0].get("period_start")
+                    or forecast_list[0].get("periodStart")
+                    or forecast_list[0].get("start_time")
+                )
+                t1 = _to_aware_datetime(
+                    forecast_list[1].get("period_start")
+                    or forecast_list[1].get("periodStart")
+                    or forecast_list[1].get("start_time")
+                )
+                if t0 and t1:
+                    diff = abs((t1 - t0).total_seconds()) / 3600.0
+                    if 0.1 <= diff <= 24.0:
+                        step_hours = diff
+            except Exception:
+                step_hours = 0.5
 
         for interval in forecast_list:
             period_start = _to_aware_datetime(
@@ -137,10 +172,10 @@ class PVForecastParser:
             if not period_start:
                 continue
 
-            # Each interval is typically 30 minutes
             period_end = period_start.astimezone(start_dt.tzinfo or UTC)
             # Check overlap with [start_dt, end_dt)
             if start_dt <= period_end < end_dt:
+                matched = True
                 est = float(
                     interval.get("pv_estimate")
                     or interval.get("pv_estimate_p50")
@@ -156,10 +191,9 @@ class PVForecastParser:
                 else:
                     power_kw = est
 
-                # 30-min interval: energy = power (kW) * 0.5 hours
-                total_kwh += power_kw * 0.5
+                total_kwh += power_kw * step_hours
 
-        return total_kwh
+        return total_kwh, matched
 
     def _parse_open_meteo(
         self, wh_period: dict[str, Any], start_dt: datetime, end_dt: datetime

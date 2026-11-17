@@ -143,3 +143,98 @@ def test_unavailable_or_unknown_fallback():
     val_none, avail_none = parser.get_forecast_energy_kwh(None, None, start_dt, end_dt)
     assert avail_none is False
     assert val_none == 0.0
+
+
+def test_solcast_hourly_interval_auto_step():
+    """Verify detailedHourly with 1-hour interval auto step calculation."""
+    parser = PVForecastParser()
+
+    detailed_hourly = [
+        {"period_start": "2026-11-18T08:00:00+01:00", "pv_estimate": 0.5},
+        {"period_start": "2026-11-18T09:00:00+01:00", "pv_estimate": 1.2},
+        {"period_start": "2026-11-18T10:00:00+01:00", "pv_estimate": 2.0},
+    ]
+
+    mock_state = State("sensor.solcast_pv_forecast", "3.7", {"detailedHourly": detailed_hourly})
+
+    start_dt = datetime(2026, 11, 18, 8, 0, tzinfo=WARSAW_TZ)
+    end_dt = datetime(2026, 11, 18, 11, 0, tzinfo=WARSAW_TZ)
+
+    val, avail = parser.get_forecast_energy_kwh(
+        None, "sensor.solcast_pv_forecast", start_dt, end_dt, state_override=mock_state
+    )
+    assert avail is True
+    # 0.5*1.0 + 1.2*1.0 + 2.0*1.0 = 3.7 kWh
+    assert round(val, 2) == 3.7
+
+
+def test_solcast_zero_production_returns_available():
+    """Verify that legitimate 0.0 kWh generation (e.g. night hours) returns avail=True when intervals match."""
+    parser = PVForecastParser()
+
+    detailed_forecast = [
+        {"period_start": "2026-11-18T02:00:00+01:00", "pv_estimate": 0.0},
+        {"period_start": "2026-11-18T02:30:00+01:00", "pv_estimate": 0.0},
+        {"period_start": "2026-11-18T03:00:00+01:00", "pv_estimate": 0.0},
+    ]
+
+    mock_state = State("sensor.solcast_pv_forecast", "0.0", {"detailedForecast": detailed_forecast})
+
+    start_dt = datetime(2026, 11, 18, 2, 0, tzinfo=WARSAW_TZ)
+    end_dt = datetime(2026, 11, 18, 3, 30, tzinfo=WARSAW_TZ)
+
+    val, avail = parser.get_forecast_energy_kwh(
+        None, "sensor.solcast_pv_forecast", start_dt, end_dt, state_override=mock_state
+    )
+    assert avail is True
+    assert val == 0.0
+
+
+async def test_solcast_sibling_proactive_lookup(hass):
+    """Verify proactive sibling lookup when querying today with a tomorrow entity configured."""
+    from datetime import timedelta
+
+    parser = PVForecastParser()
+
+    today_dt = datetime.now(WARSAW_TZ)
+    start_today = today_dt.replace(hour=15, minute=0, second=0, microsecond=0)
+    end_today = today_dt.replace(hour=22, minute=0, second=0, microsecond=0)
+
+    # Set up today state in hass
+    hass.states.async_set(
+        "sensor.solcast_pv_forecast_forecast_today",
+        "2.5",
+        {
+            "detailedForecast": [
+                {
+                    "period_start": start_today.isoformat(),
+                    "pv_estimate": 0.4,  # 0.2 kWh
+                },
+                {
+                    "period_start": (start_today + timedelta(minutes=30)).isoformat(),
+                    "pv_estimate": 0.2,  # 0.1 kWh
+                },
+            ]
+        },
+    )
+
+    # User configured tomorrow entity
+    hass.states.async_set(
+        "sensor.solcast_pv_forecast_forecast_tomorrow",
+        "8.0",
+        {
+            "detailedForecast": [
+                {
+                    "period_start": (start_today + timedelta(days=1)).isoformat(),
+                    "pv_estimate": 2.0,
+                }
+            ]
+        },
+    )
+
+    val, avail = parser.get_forecast_energy_kwh(
+        hass, "sensor.solcast_pv_forecast_forecast_tomorrow", start_today, end_today
+    )
+
+    assert avail is True
+    assert round(val, 2) == 0.3  # 0.4*0.5 + 0.2*0.5 = 0.3 kWh from today entity!

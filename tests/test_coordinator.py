@@ -172,6 +172,73 @@ async def test_coordinator_inactive_skips_optimization(hass: HomeAssistant):
 
 
 
+async def test_coordinator_end_cheap_window_and_watchdog_clamping(hass: HomeAssistant):
+    """Test async_end_cheap_window and clamping of watchdog timeout near off-peak boundary."""
+    from custom_components.deye_g12_opt.const import (
+        CONF_WATCHDOG_TIMEOUT_SEC,
+        MODE_REMOTE_RAM,
+    )
+    from custom_components.deye_g12_opt.optimizer import PlanResult
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Deye Inverter",
+        data={
+            CONF_INVERTER_PROFILE: PROFILE_3PH_LV,
+            CONF_CONTROL_MODE: MODE_REMOTE_RAM,
+            CONF_BATTERY_SOC_ENTITY: "sensor.battery_soc",
+            CONF_TOTAL_LOAD_ENTITY: "sensor.total_load",
+            CONF_BATTERY_CAPACITY_KWH: 15.0,
+            CONF_BATTERY_VOLTAGE_V: 51.2,
+            CONF_RATED_POWER_W: 15000,
+            CONF_PGE_TARIFF: TARIFF_G12W,
+            CONF_WATCHDOG_TIMEOUT_SEC: 1800,
+            "readback_delay_sec": 0,
+        },
+        entry_id="test_entry_end_window",
+    )
+    entry.add_to_hass(hass)
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    coordinator: DeyeG12Coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator.simulation_mode = False
+    coordinator.executor.remote_mode_active = True
+    coordinator.current_plan = PlanResult(
+        plan_type="night",
+        soc_target=90.0,
+        charge_current_a=30,
+        grid_charge_enable=True,
+        headroom_max_soc=95.0,
+        expected_load_kwh=5.0,
+        expected_pv_kwh=0.0,
+        reason="Test",
+    )
+
+    # 1. Verify watchdog clamping: 5 minutes left in off-peak window -> clamped to 300s
+    with (
+        patch.object(coordinator.tariff, "is_off_peak", return_value=True),
+        patch.object(coordinator.tariff, "get_remaining_off_peak_seconds", return_value=300),
+        patch.object(coordinator.executor, "async_refresh_watchdog", AsyncMock(return_value=True)) as mock_refresh,
+    ):
+        await coordinator._async_update_data()
+        assert mock_refresh.called
+        # Verify clamped timeout (300s) was passed
+        mock_refresh.assert_called_once_with(300)
+
+    # 2. Verify async_end_cheap_window explicitly shuts down Remote Mode and enables self-consumption
+    with patch.object(coordinator.executor, "async_disable_remote_mode", AsyncMock(return_value=True)) as mock_disable:
+        await coordinator.async_end_cheap_window()
+        assert mock_disable.called
+        assert coordinator.current_plan.grid_charge_enable is False
+        assert coordinator.current_plan.charge_current_a == 0
+        assert coordinator._remote_mode_needs_rearm is False
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+
 async def test_coordinator_watchdog_auto_migration_and_rearm(hass: HomeAssistant):
     """Test auto-migration of watchdog timeout to 1800s and re-arming after connection drop."""
     from custom_components.deye_g12_opt.const import (
