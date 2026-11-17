@@ -180,3 +180,79 @@ def test_windows_and_slots():
 
     slots = calc.get_slot_times(d)
     assert slots == [(0, 0), (5, 0), (6, 0), (13, 0), (15, 0), (22, 0)]
+
+
+def test_current_off_peak_end_time_and_remaining_seconds():
+    """Verify off-peak end time calculation and remaining seconds for night and midday windows."""
+    calc = PGETariffCalculator(tariff_variant=TARIFF_G12W, pge_seasonal_shift=True)
+
+    # 1. During night window (e.g. Wednesday 04:30): should end at 06:00 today
+    dt_night = datetime(2026, 1, 14, 4, 30, tzinfo=WARSAW_TZ)  # Wednesday
+    end_night = calc.get_current_off_peak_end_time(dt_night)
+    assert end_night is not None
+    assert end_night == datetime(2026, 1, 14, 6, 0, tzinfo=WARSAW_TZ)
+    assert calc.get_remaining_off_peak_seconds(dt_night) == 90 * 60  # 1.5 hours = 5400s
+
+    # 2. At 05:55 (5 minutes before end of night window)
+    dt_555 = datetime(2026, 1, 14, 5, 55, tzinfo=WARSAW_TZ)
+    assert calc.get_remaining_off_peak_seconds(dt_555) == 300  # 5 min = 300s
+
+    # 3. During midday window in winter (13:00 - 15:00)
+    dt_mid = datetime(2026, 1, 14, 13, 45, tzinfo=WARSAW_TZ)
+    end_mid = calc.get_current_off_peak_end_time(dt_mid)
+    assert end_mid is not None
+    assert end_mid == datetime(2026, 1, 14, 15, 0, tzinfo=WARSAW_TZ)
+    assert calc.get_remaining_off_peak_seconds(dt_mid) == 75 * 60  # 4500s
+
+    # 4. During peak hours (e.g. 08:00)
+    dt_peak = datetime(2026, 1, 14, 8, 0, tzinfo=WARSAW_TZ)
+    assert calc.get_current_off_peak_end_time(dt_peak) is None
+    assert calc.get_remaining_off_peak_seconds(dt_peak) is None
+
+    # 5. During Saturday morning in G12w: stays off-peak until Monday 06:00
+    dt_sat = datetime(2026, 1, 17, 10, 0, tzinfo=WARSAW_TZ)  # Saturday
+    end_sat = calc.get_current_off_peak_end_time(dt_sat)
+    assert end_sat is not None
+    assert end_sat == datetime(2026, 1, 19, 6, 0, tzinfo=WARSAW_TZ)  # Monday 06:00
+
+
+
+def test_off_peak_end_times_and_remaining_seconds():
+    """Verify calculation of off-peak window end times and remaining seconds."""
+    calc_winter = PGETariffCalculator(tariff_variant=TARIFF_G12W, pge_seasonal_shift=True)
+
+    # 1. Early morning on Thursday (2026-01-15 05:45) -> Ends today at 06:00
+    dt_early = datetime(2026, 1, 15, 5, 45, tzinfo=WARSAW_TZ)
+    end_early = calc_winter.get_current_off_peak_end_time(dt_early)
+    assert end_early == datetime(2026, 1, 15, 6, 0, tzinfo=WARSAW_TZ)
+    assert calc_winter.get_remaining_off_peak_seconds(dt_early) == 15 * 60  # 900s
+
+    # 2. Night on Thursday (2026-01-15 22:30) -> Ends Friday at 06:00
+    dt_night = datetime(2026, 1, 15, 22, 30, tzinfo=WARSAW_TZ)
+    end_night = calc_winter.get_current_off_peak_end_time(dt_night)
+    assert end_night == datetime(2026, 1, 16, 6, 0, tzinfo=WARSAW_TZ)
+    assert calc_winter.get_remaining_off_peak_seconds(dt_night) == int(7.5 * 3600)
+
+    # 3. Midday winter on Thursday (2026-01-15 13:30) -> Ends today at 15:00
+    dt_mid = datetime(2026, 1, 15, 13, 30, tzinfo=WARSAW_TZ)
+    end_mid = calc_winter.get_current_off_peak_end_time(dt_mid)
+    assert end_mid == datetime(2026, 1, 15, 15, 0, tzinfo=WARSAW_TZ)
+    assert calc_winter.get_remaining_off_peak_seconds(dt_mid) == int(1.5 * 3600)
+
+    # 4. Morning peak on Thursday (2026-01-15 08:00) -> Not off-peak
+    dt_peak = datetime(2026, 1, 15, 8, 0, tzinfo=WARSAW_TZ)
+    assert calc_winter.get_current_off_peak_end_time(dt_peak) is None
+    assert calc_winter.get_remaining_off_peak_seconds(dt_peak) is None
+
+    # 5. G12w Weekend (Saturday 2026-01-17 14:00) -> Stays off-peak until Monday 06:00
+    dt_sat = datetime(2026, 1, 17, 14, 0, tzinfo=WARSAW_TZ)
+    end_sat = calc_winter.get_current_off_peak_end_time(dt_sat)
+    assert end_sat == datetime(2026, 1, 19, 6, 0, tzinfo=WARSAW_TZ)
+
+    # 6. Summer midday (2026-07-15 15:30) -> Ends at 17:00
+    calc_summer = PGETariffCalculator(tariff_variant=TARIFF_G12W, pge_seasonal_shift=True)
+    dt_summer_mid = datetime(2026, 7, 15, 15, 30, tzinfo=WARSAW_TZ)
+    end_summer_mid = calc_summer.get_current_off_peak_end_time(dt_summer_mid)
+    assert end_summer_mid == datetime(2026, 7, 15, 17, 0, tzinfo=WARSAW_TZ)
+    assert calc_summer.get_remaining_off_peak_seconds(dt_summer_mid) == int(1.5 * 3600)
+

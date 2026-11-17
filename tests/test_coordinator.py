@@ -171,6 +171,7 @@ async def test_coordinator_inactive_skips_optimization(hass: HomeAssistant):
     await hass.config_entries.async_unload(entry.entry_id)
 
 
+
 async def test_coordinator_watchdog_auto_migration_and_rearm(hass: HomeAssistant):
     """Test auto-migration of watchdog timeout to 1800s and re-arming after connection drop."""
     from custom_components.deye_g12_opt.const import (
@@ -211,7 +212,7 @@ async def test_coordinator_watchdog_auto_migration_and_rearm(hass: HomeAssistant
     assert coordinator.executor.watchdog_timeout_sec == 1800
     assert entry.options.get(CONF_WATCHDOG_TIMEOUT_SEC) == 1800
 
-    # 2. Test re-arm mechanism:
+    # 2. Test re-arm mechanism during off-peak window:
     # Setup active Remote Mode with a grid charge plan
     coordinator.simulation_mode = False
     coordinator.executor.remote_mode_active = True
@@ -226,19 +227,39 @@ async def test_coordinator_watchdog_auto_migration_and_rearm(hass: HomeAssistant
         reason="Test",
     )
 
-    # Simulate watchdog refresh failure (Modbus connection drop)
-    with patch.object(coordinator.executor, "async_refresh_watchdog", AsyncMock(return_value=False)):
-        await coordinator._async_update_data()
-        assert coordinator._remote_mode_needs_rearm is True
+    with patch.object(coordinator.tariff, "is_off_peak", return_value=True):
+        # Simulate watchdog refresh failure (Modbus connection drop)
+        with patch.object(coordinator.executor, "async_refresh_watchdog", AsyncMock(return_value=False)):
+            await coordinator._async_update_data()
+            assert coordinator._remote_mode_needs_rearm is True
 
-    # Next update data: simulate connection restored, verify async_apply_plan (re-arm) was invoked
-    with (
-        patch.object(coordinator.executor, "async_refresh_watchdog", AsyncMock(return_value=True)),
-        patch.object(coordinator.executor, "async_apply_plan", AsyncMock(return_value=True)) as mock_apply,
-    ):
-        await coordinator._async_update_data()
-        assert mock_apply.called
-        assert coordinator._remote_mode_needs_rearm is False
+        # Next update data: simulate connection restored, verify async_apply_plan (re-arm) was invoked
+        with (
+            patch.object(coordinator.executor, "async_refresh_watchdog", AsyncMock(return_value=True)),
+            patch.object(coordinator.executor, "async_apply_plan", AsyncMock(return_value=True)) as mock_apply,
+        ):
+            await coordinator._async_update_data()
+            assert mock_apply.called
+            assert coordinator._remote_mode_needs_rearm is False
+
+    # 3. Test unconditional shutdown when peak window arrives (e.g. at 06:00)
+    coordinator.executor.remote_mode_active = True
+    coordinator.current_plan = PlanResult(
+        plan_type="night",
+        soc_target=80.0,
+        charge_current_a=25,
+        grid_charge_enable=True,
+        headroom_max_soc=95.0,
+        expected_load_kwh=6.0,
+        expected_pv_kwh=1.0,
+        reason="Test",
+    )
+    with patch.object(coordinator.tariff, "is_off_peak", return_value=False):
+        with patch.object(coordinator.executor, "async_disable_remote_mode", AsyncMock(return_value=True)) as mock_disable:
+            await coordinator._async_update_data()
+            assert mock_disable.called
+            assert coordinator.current_plan.grid_charge_enable is False
 
     await hass.config_entries.async_unload(entry.entry_id)
+
 

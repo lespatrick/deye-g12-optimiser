@@ -91,6 +91,7 @@ class RecorderConsumptionEstimator:
             statistic_ids={self.load_statistic_id},
             period="hour",
             types={"change"},
+            units=None,
         )
 
     def compute_window_average(

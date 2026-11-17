@@ -224,7 +224,7 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.async_create_task(self.async_evaluate_and_apply(plan_type))
 
     def _schedule_next_triggers(self) -> None:
-        """Schedule future point-in-time plan evaluations."""
+        """Schedule future point-in-time plan evaluations and window boundaries."""
         for unsub in self._unsub_scheduled_triggers:
             unsub()
         self._unsub_scheduled_triggers.clear()
@@ -232,37 +232,78 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = datetime.now(WARSAW_TZ)
         today = now.date()
 
-        # Schedule evaluations 5 minutes before off-peak windows:
-        # 1. Night plan evaluation at 21:55 (or adjusted for meter quirk)
-        night_start_h, _ = self.tariff.get_night_off_peak_hours(now)
+        # 1. Night plan evaluation (5 min before night off-peak: 21:55 + offset)
+        night_start_h, night_end_h = self.tariff.get_night_off_peak_hours(now)
         night_eval_h = (night_start_h - 1) % 24
-        night_time = datetime.combine(today, time(night_eval_h, 55), tzinfo=WARSAW_TZ)
-        if night_time <= now:
-            night_time += timedelta(days=1)
+        night_eval_time = datetime.combine(today, time(night_eval_h, 55), tzinfo=WARSAW_TZ)
+        if night_eval_time <= now:
+            night_eval_time += timedelta(days=1)
 
-        # 2. Midday plan evaluation 5 minutes before midday off-peak
-        mid_start_h, _ = self.tariff.get_midday_off_peak_hours(today, now)
+        # 2. Night off-peak START (22:00 + offset)
+        night_start_time = datetime.combine(today, time(night_start_h, 0), tzinfo=WARSAW_TZ)
+        if night_start_time <= now:
+            night_start_time += timedelta(days=1)
+
+        # 3. Night off-peak END (06:00 + offset)
+        night_end_time = datetime.combine(today, time(night_end_h, 0), tzinfo=WARSAW_TZ)
+        if night_end_time <= now:
+            night_end_time += timedelta(days=1)
+
+        # 4. Midday plan evaluation (5 min before midday off-peak: 12:55 + offset)
+        mid_start_h, mid_end_h = self.tariff.get_midday_off_peak_hours(today, now)
         mid_eval_h = (mid_start_h - 1) % 24
-        mid_time = datetime.combine(today, time(mid_eval_h, 55), tzinfo=WARSAW_TZ)
-        if mid_time <= now:
-            mid_time += timedelta(days=1)
+        mid_eval_time = datetime.combine(today, time(mid_eval_h, 55), tzinfo=WARSAW_TZ)
+        if mid_eval_time <= now:
+            mid_eval_time += timedelta(days=1)
+
+        # 5. Midday off-peak START (13:00 + offset / 15:00 in summer)
+        mid_start_time = datetime.combine(today, time(mid_start_h, 0), tzinfo=WARSAW_TZ)
+        if mid_start_time <= now:
+            mid_start_time += timedelta(days=1)
+
+        # 6. Midday off-peak END (15:00 + offset / 17:00 in summer)
+        mid_end_time = datetime.combine(today, time(mid_end_h, 0), tzinfo=WARSAW_TZ)
+        if mid_end_time <= now:
+            mid_end_time += timedelta(days=1)
 
         @callback
-        def _on_night_trigger(point_in_time: datetime) -> None:
+        def _on_night_eval(point_in_time: datetime) -> None:
             self.hass.async_create_task(self.async_evaluate_and_apply("night"))
             self._schedule_next_triggers()
 
         @callback
-        def _on_midday_trigger(point_in_time: datetime) -> None:
+        def _on_midday_eval(point_in_time: datetime) -> None:
             self.hass.async_create_task(self.async_evaluate_and_apply("midday"))
             self._schedule_next_triggers()
 
-        self._unsub_scheduled_triggers.append(
-            async_track_point_in_time(self.hass, _on_night_trigger, night_time)
-        )
-        self._unsub_scheduled_triggers.append(
-            async_track_point_in_time(self.hass, _on_midday_trigger, mid_time)
-        )
+        @callback
+        def _on_night_start(point_in_time: datetime) -> None:
+            self.hass.async_create_task(self.async_evaluate_and_apply("night"))
+            self._schedule_next_triggers()
+
+        @callback
+        def _on_midday_start(point_in_time: datetime) -> None:
+            self.hass.async_create_task(self.async_evaluate_and_apply("midday"))
+            self._schedule_next_triggers()
+
+        @callback
+        def _on_night_end(point_in_time: datetime) -> None:
+            self.hass.async_create_task(self.async_end_cheap_window())
+            self._schedule_next_triggers()
+
+        @callback
+        def _on_midday_end(point_in_time: datetime) -> None:
+            self.hass.async_create_task(self.async_end_cheap_window())
+            self._schedule_next_triggers()
+
+        self._unsub_scheduled_triggers.extend([
+            async_track_point_in_time(self.hass, _on_night_eval, night_eval_time),
+            async_track_point_in_time(self.hass, _on_night_start, night_start_time),
+            async_track_point_in_time(self.hass, _on_night_end, night_end_time),
+            async_track_point_in_time(self.hass, _on_midday_eval, mid_eval_time),
+            async_track_point_in_time(self.hass, _on_midday_start, mid_start_time),
+            async_track_point_in_time(self.hass, _on_midday_end, mid_end_time),
+        ])
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch latest states, refresh watchdog, and update sensor data."""
@@ -274,9 +315,36 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             if current_soc is not None and current_soc >= 99.0:
                 self.last_full_soc_time = now
 
-            # Remote Mode watchdog maintenance and auto re-arming after connection drops
+            is_off_peak = self.tariff.is_off_peak(now)
+
+            # Continuous safety guard: if we are in a PEAK zone (expensive energy),
+            # Remote Mode and grid charging MUST be unconditionally stopped!
+            if not is_off_peak:
+                if self.control_mode == MODE_REMOTE_RAM and self.executor.remote_mode_active:
+                    _LOGGER.warning(
+                        "Peak tariff zone active (%s) but Remote Mode was still active. "
+                        "Enforcing unconditional shutdown to start battery self-consumption.",
+                        self.tariff.get_tariff_zone(now),
+                    )
+                    await self.executor.async_disable_remote_mode()
+                    self._remote_mode_needs_rearm = False
+
+                if self.current_plan and self.current_plan.grid_charge_enable:
+                    self.current_plan = PlanResult(
+                        plan_type="peak",
+                        soc_target=self.current_plan.soc_target,
+                        charge_current_a=0,
+                        grid_charge_enable=False,
+                        headroom_max_soc=self.current_plan.headroom_max_soc,
+                        expected_load_kwh=self.current_plan.expected_load_kwh,
+                        expected_pv_kwh=self.current_plan.expected_pv_kwh,
+                        reason="Peak tariff zone active; battery self-consumption enabled",
+                    )
+
+            # Remote Mode watchdog maintenance and auto re-arming during off-peak
             should_remote_charge = (
                 self.control_mode == MODE_REMOTE_RAM
+                and is_off_peak
                 and self.current_plan is not None
                 and self.current_plan.grid_charge_enable
                 and self.automation_active
@@ -308,13 +376,20 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                             self._remote_mode_needs_rearm = False
                     else:
                         _LOGGER.debug(
-                            "Modbus connection offline; inverter autonomous 1800s hardware timer active"
+                            "Modbus connection offline; inverter autonomous hardware timer active"
                         )
                 elif self.executor.remote_mode_active:
-                    refresh_ok = await self.executor.async_refresh_watchdog()
+                    # Calculate remaining seconds in current off-peak window to clamp watchdog
+                    remaining_sec = self.tariff.get_remaining_off_peak_seconds(now)
+                    effective_timeout = (
+                        max(60, min(self.watchdog_timeout_sec, remaining_sec))
+                        if remaining_sec is not None
+                        else self.watchdog_timeout_sec
+                    )
+                    refresh_ok = await self.executor.async_refresh_watchdog(effective_timeout)
                     if not refresh_ok:
                         _LOGGER.info(
-                            "Watchdog refresh deferred (Modbus connection drop). Buffered by 1800s hardware watchdog. Flagging for full re-arm upon reconnection."
+                            "Watchdog refresh deferred (Modbus connection drop). Buffered by hardware watchdog. Flagging for full re-arm upon reconnection."
                         )
                         self._remote_mode_needs_rearm = True
             elif self.control_mode == MODE_REMOTE_RAM:
@@ -458,6 +533,24 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             self.last_arbitrage_savings = 0.0
 
+        # In Remote Mode RAM: only apply grid charge to hardware if we are currently in an off-peak window!
+        if (
+            self.control_mode == MODE_REMOTE_RAM
+            and plan.grid_charge_enable
+            and not self.tariff.is_off_peak(now)
+            and not self.simulation_mode
+        ):
+            _LOGGER.info(
+                "Calculated %s plan has grid charge enabled, but current time (%s) is in peak tariff zone. "
+                "Hardware activation deferred until off-peak window begins.",
+                plan_type.upper(),
+                now.strftime("%H:%M"),
+            )
+            if self.executor.remote_mode_active:
+                await self.executor.async_disable_remote_mode()
+            await self.async_request_refresh()
+            return True
+
         success = await self.executor.async_apply_plan(
             plan=plan,
             tariff_calc=self.tariff,
@@ -484,6 +577,50 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self.async_request_refresh()
         return success
+
+    async def async_end_cheap_window(self) -> None:
+        """Unconditionally stop grid charging at the end of off-peak window and enable battery self-consumption."""
+        _LOGGER.info(
+            "Off-peak tariff window ended. Unconditionally disabling Remote Mode / grid charge. "
+            "Switching inverter to battery self-consumption."
+        )
+
+        if self.control_mode == MODE_REMOTE_RAM:
+            # 1. Disable Remote Mode (1100=0, 1109=0, 1101=0)
+            await self.executor.async_disable_remote_mode()
+            self._remote_mode_needs_rearm = False
+
+        elif self.control_mode == MODE_TOU_SCHEDULE:
+            # Ensure grid charge is disabled on TOU slots
+            current_soc = self._get_current_battery_soc() or self.soc_min
+            peak_plan = PlanResult(
+                plan_type="peak",
+                soc_target=self.soc_min,
+                charge_current_a=0,
+                grid_charge_enable=False,
+                headroom_max_soc=self.soc_max,
+                expected_load_kwh=0.0,
+                expected_pv_kwh=0.0,
+                reason="Off-peak window ended; battery self-consumption active",
+            )
+            await self.executor.async_apply_plan(
+                plan=peak_plan,
+                tariff_calc=self.tariff,
+                simulation_mode=self.simulation_mode,
+                current_soc=current_soc,
+            )
+
+        self.current_plan = PlanResult(
+            plan_type="peak",
+            soc_target=self.soc_min,
+            charge_current_a=0,
+            grid_charge_enable=False,
+            headroom_max_soc=self.soc_max,
+            expected_load_kwh=0.0,
+            expected_pv_kwh=0.0,
+            reason="Off-peak window ended; battery self-consumption active",
+        )
+        await self.async_request_refresh()
 
     async def async_unload(self) -> None:
         """Unload coordinator and clean up background listeners."""

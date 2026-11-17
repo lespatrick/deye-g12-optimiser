@@ -190,6 +190,49 @@ class PGETariffCalculator:
         end_dt = datetime.combine(target_date, time(mid_end_h, 0), tzinfo=WARSAW_TZ)
         return (start_dt, end_dt)
 
+    def get_current_off_peak_end_time(self, dt: datetime) -> datetime | None:
+        """Return the exact datetime when the current off-peak window ends, or None if not off-peak."""
+        if not self.is_off_peak(dt):
+            return None
+
+        local_dt = dt.astimezone(WARSAW_TZ) if dt.tzinfo is not None else dt.replace(tzinfo=WARSAW_TZ)
+        zone = self.get_tariff_zone(local_dt)
+        offset = self._get_hour_offset(local_dt)
+        today = local_dt.date()
+
+        if zone == ZONE_OFF_PEAK_MIDDAY:
+            _, mid_end_h = self.get_midday_off_peak_hours(today, local_dt)
+            return datetime.combine(today, time(mid_end_h, 0), tzinfo=WARSAW_TZ)
+
+        if zone in (ZONE_OFF_PEAK_NIGHT, ZONE_OFF_PEAK_WEEKEND):
+            # Night or weekend/holiday off-peak:
+            # Advance day-by-day until reaching a regular workday morning (6 + offset):00
+            cur_min = local_dt.hour * 60 + local_dt.minute
+            night_end_min = (6 + offset) * 60
+
+            # If currently in the early morning before 06:00 on today:
+            candidate_date = today if cur_min < night_end_min else today + timedelta(days=1)
+
+            for _ in range(14):  # Look up to 14 days ahead
+                is_weekend = self.tariff_variant == TARIFF_G12W and candidate_date.weekday() in (5, 6)
+                is_holiday = self.tariff_variant == TARIFF_G12W and self.is_polish_holiday(candidate_date)
+                if not is_weekend and not is_holiday:
+                    cand_dt = datetime.combine(candidate_date, time(6, 0), tzinfo=WARSAW_TZ)
+                    cand_offset = self._get_hour_offset(cand_dt)
+                    return datetime.combine(candidate_date, time(6 + cand_offset, 0), tzinfo=WARSAW_TZ)
+                candidate_date += timedelta(days=1)
+
+        return None
+
+    def get_remaining_off_peak_seconds(self, dt: datetime) -> int | None:
+        """Return seconds remaining until the end of the current off-peak window, or None."""
+        end_dt = self.get_current_off_peak_end_time(dt)
+        if end_dt is None:
+            return None
+        local_dt = dt.astimezone(WARSAW_TZ) if dt.tzinfo is not None else dt.replace(tzinfo=WARSAW_TZ)
+        remaining = int((end_dt - local_dt).total_seconds())
+        return max(0, remaining)
+
     def get_slot_times(self, d: date, dt_context: datetime | None = None) -> list[tuple[int, int]]:
         """Return 6 slot start times (hour, minute) for TOU 24h schedule."""
         ref_dt = dt_context or datetime.combine(d, time(12, 0), tzinfo=WARSAW_TZ)

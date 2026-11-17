@@ -359,14 +359,15 @@ class DeyeExecutor:
             self.last_execution_status = f"Remote Mode error: {exc}"
             return False
 
-    async def async_refresh_watchdog(self) -> bool:
+    async def async_refresh_watchdog(self, timeout_sec: int | None = None) -> bool:
         """Periodically refresh watchdog timer register 1101 (Coordinator 60s loop)."""
         if not self.remote_mode_active:
             return True
 
+        timeout = timeout_sec if timeout_sec is not None else self.watchdog_timeout_sec
         try:
             # CRITICAL: Write specifically to register 1101
-            await self._write_register(REG_REMOTE_WATCHDOG, self.watchdog_timeout_sec)
+            await self._write_register(REG_REMOTE_WATCHDOG, timeout)
             return True
         except Exception as exc:  # pylint: disable=broad-except
             is_conn_error = (
@@ -374,19 +375,24 @@ class DeyeExecutor:
                 or "runtime_data" in str(exc).lower()
                 or "connection" in str(exc).lower()
             )
+            err_desc = str(exc) if str(exc).strip() else type(exc).__name__
             if is_conn_error:
                 _LOGGER.debug(
-                    "Watchdog refresh deferred (Modbus connection offline): %s", exc
+                    "Watchdog refresh deferred (Modbus connection offline): %s", err_desc
                 )
             else:
-                _LOGGER.warning("Failed refreshing Remote Mode watchdog: %s", exc)
+                _LOGGER.warning("Failed refreshing Remote Mode watchdog: %s", err_desc)
             return False
 
     async def async_disable_remote_mode(self) -> bool:
-        """Safely disable Remote Mode (1100 = 0, 1109 = 0)."""
+        """Safely disable Remote Mode (1100 = 0, 1109 = 0, 1101 = 0)."""
         try:
             await self._write_register(REG_REMOTE_POWER, 0)
             await self._write_register(REG_REMOTE_ENABLE, 0)
+            try:
+                await self._write_register(REG_REMOTE_WATCHDOG, 0)
+            except Exception as w_exc:
+                _LOGGER.debug("Could not zero watchdog register 1101: %s", w_exc)
             self.remote_mode_active = False
             return True
         except Exception as exc:  # pylint: disable=broad-except
