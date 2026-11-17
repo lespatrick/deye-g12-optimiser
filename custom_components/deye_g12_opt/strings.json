@@ -76,10 +76,12 @@
     },
     "inverter_profile": {
       "options": {
-        "3ph_lv": "Three-Phase Low Voltage (SUN-8/10/12/15K-SG04/SG05LP3)",
-        "1ph_lv": "Single-Phase Low Voltage (SUN-3.6/5/6/8K-SG01/SG03LP1)",
-        "3ph_hv": "Three-Phase High Voltage (SUN-5/6/8/10/15/20K-SG01HP3)",
-        "all_in_one_bk": "All-in-One SUN-BK Series"
+        "3ph_lv": "Deye Three-Phase Low Voltage (SUN-8/10/12/15K-SG04/SG05LP3)",
+        "1ph_lv": "Deye Single-Phase Low Voltage (SUN-3.6/5/6/8K-SG01/SG03LP1)",
+        "3ph_hv": "Deye Three-Phase High Voltage (SUN-5/6/8/10/15/20K-SG01HP3)",
+        "all_in_one_bk": "Deye All-in-One SUN-BK Series",
+        "sofar_hyd_3ph": "Sofar Solar Three-Phase Hybrid (HYD 5K...20KTL-3PH / G3)",
+        "sofar_hyd_1ph": "Sofar Solar Single-Phase Hybrid (HYD 3K...6K-EP / ME3000SP)"
       }
     },
     "control_mode": {

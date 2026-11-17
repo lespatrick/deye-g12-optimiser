@@ -17,6 +17,8 @@ from .const import (
     MODE_REMOTE_RAM,
     PROFILE_3PH_HV,
     PROFILE_3PH_LV,
+    PROFILE_SOFAR_HYD_1PH,
+    PROFILE_SOFAR_HYD_3PH,
     REG_REMOTE_BATTERY_STRATEGY,
     REG_REMOTE_CONTROL_SIDE,
     REG_REMOTE_ENABLE,
@@ -24,7 +26,11 @@ from .const import (
     REG_REMOTE_POWER,
     REG_REMOTE_TARGET_SOC,
     REG_REMOTE_WATCHDOG,
+    REG_SOFAR_PASSIVE_POWER,
+    REG_SOFAR_WORK_MODE,
     SELL_BIT_MASK,
+    SOFAR_MODE_PASSIVE,
+    SOFAR_MODE_SELF_USE,
     TOU_CHARGE_DISABLED,
     TOU_CHARGE_GRID,
     TOU_REGISTERS,
@@ -63,6 +69,7 @@ class DeyeExecutor:
         soc_max: float = 95.0,
         watchdog_timeout_sec: int = DEFAULT_WATCHDOG_TIMEOUT_SEC,
         allow_battery_sell: bool = DEFAULT_ALLOW_BATTERY_SELL,
+        battery_voltage_v: float = 51.2,
     ) -> None:
         """Initialize Deye Executor."""
         self.hass = hass
@@ -75,11 +82,17 @@ class DeyeExecutor:
         self.soc_max = soc_max
         self.watchdog_timeout_sec = max(1800, watchdog_timeout_sec)
         self.allow_battery_sell = allow_battery_sell
+        self.battery_voltage_v = battery_voltage_v
 
         self.last_written_soc: float | None = None
         self.last_written_current: int | None = None
         self.last_execution_status: str = "Initialized"
         self.remote_mode_active: bool = False
+
+    @property
+    def is_sofar(self) -> bool:
+        """Return True if inverter profile belongs to Sofar family."""
+        return self.inverter_profile in (PROFILE_SOFAR_HYD_3PH, PROFILE_SOFAR_HYD_1PH)
 
     async def async_apply_plan(
         self,
@@ -303,10 +316,13 @@ class DeyeExecutor:
             self.last_execution_status = "Remote Mode disabled: SOC limit reached"
             return True
 
+        if self.is_sofar:
+            return await self._apply_sofar_passive_mode(plan)
+
         # Calculate power in 0.1% units: negative for charge, positive for discharge
         # e.g., for charge: power_w = charge_current * voltage
         if plan.grid_charge_enable:
-            power_w = int(plan.charge_current_a * 51.2)  # DC charge power
+            power_w = int(plan.charge_current_a * self.battery_voltage_v)  # DC charge power
             power_pct = -int((power_w / max(1, self.rated_power_w)) * 1000)
         else:
             power_pct = 0
@@ -359,10 +375,56 @@ class DeyeExecutor:
             self.last_execution_status = f"Remote Mode error: {exc}"
             return False
 
+    async def _apply_sofar_passive_mode(self, plan: PlanResult) -> bool:
+        """Apply plan to Sofar hybrid inverter in Passive Mode (RAM/Shadow Registers)."""
+        if plan.grid_charge_enable:
+            power_w = int(plan.charge_current_a * self.battery_voltage_v)
+            power_w = min(power_w, self.rated_power_w)
+        else:
+            power_w = 0
+
+        try:
+            # 1. Switch to Passive Mode (4368 = 3)
+            await self._write_register(REG_SOFAR_WORK_MODE, SOFAR_MODE_PASSIVE)
+            self.remote_mode_active = True
+
+            # 2. Set Target Passive Power in Watts (4487 = power_w)
+            await self._write_register(REG_SOFAR_PASSIVE_POWER, power_w)
+
+            self.last_execution_status = (
+                f"Sofar Passive Active: Power {power_w}W, Target {plan.soc_target:.0f}%"
+            )
+            return True
+
+        except Exception as exc:  # pylint: disable=broad-except
+            is_conn_error = (
+                isinstance(exc, DeyeConnectionError)
+                or "runtime_data" in str(exc).lower()
+                or "connection" in str(exc).lower()
+            )
+            if is_conn_error:
+                _LOGGER.info(
+                    "Sofar Passive Mode registers deferred (Modbus offline): %s.",
+                    exc,
+                )
+            else:
+                _LOGGER.warning("Failed setting Sofar Passive Mode registers: %s", exc)
+            self.last_execution_status = f"Sofar Passive Mode error: {exc}"
+            return False
+
     async def async_refresh_watchdog(self, timeout_sec: int | None = None) -> bool:
-        """Periodically refresh watchdog timer register 1101 (Coordinator 60s loop)."""
+        """Periodically refresh watchdog timer / keepalive (Coordinator 60s loop)."""
         if not self.remote_mode_active:
             return True
+
+        if self.is_sofar:
+            # For Sofar in Passive Mode: confirm passive mode (4368 = 3) as keepalive heartbeat
+            try:
+                await self._write_register(REG_SOFAR_WORK_MODE, SOFAR_MODE_PASSIVE)
+                return True
+            except Exception as exc:
+                _LOGGER.debug("Sofar keepalive refresh deferred: %s", exc)
+                return False
 
         timeout = timeout_sec if timeout_sec is not None else self.watchdog_timeout_sec
         try:
@@ -385,8 +447,16 @@ class DeyeExecutor:
             return False
 
     async def async_disable_remote_mode(self) -> bool:
-        """Safely disable Remote Mode (1100 = 0, 1109 = 0, 1101 = 0)."""
+        """Safely disable Remote / Passive Mode (return to autonomous self-consumption)."""
         try:
+            if self.is_sofar:
+                # In Sofar: set passive power to 0, then switch work mode back to Self-Use (0)
+                await self._write_register(REG_SOFAR_PASSIVE_POWER, 0)
+                await self._write_register(REG_SOFAR_WORK_MODE, SOFAR_MODE_SELF_USE)
+                self.remote_mode_active = False
+                self.last_execution_status = "Sofar Passive Mode disabled (Returned to Self-Use)"
+                return True
+
             await self._write_register(REG_REMOTE_POWER, 0)
             await self._write_register(REG_REMOTE_ENABLE, 0)
             try:

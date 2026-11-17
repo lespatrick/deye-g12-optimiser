@@ -69,12 +69,14 @@ Standardowe harmonogramy czasowe (TOU) w inwerterach Deye są statyczne – codz
 
 W konfiguracji integracji dostępny jest wybór profilu sprzętowego (`inverter_profile`):
 
-| Profil | Opis | Przykładowe Modele | Rejestry TOU | Uwagi Bezpieczeństwa |
+| Profil | Opis | Przykładowe Modele | Rejestry / Tryb RAM | Uwagi Bezpieczeństwa |
 | :--- | :--- | :--- | :--- | :--- |
-| **`3PH_LV`** | Trójfazowy Niskonapięciowy | `SUN-15K-SG05LP3-EU-SM2`, `SUN-8/10/12K-SG04LP3` | `146`, `148–177` | **Blokada zapisu do rejestru 259** (ładowarka EV); ochrona bitu Sell w `172–177` |
-| **`1PH_LV`** | Jednofazowy Niskonapięciowy | `SUN-3.6/5/6/8K-SG01/03LP1` | `248`, `250–279` | Standardowy harmonogram 1-fazowy |
-| **`3PH_HV`** | Trójfazowy Wysokonapięciowy | `SUN-5/6/8/10/15/20K-SG01HP3` | `146`, `148–177` | Skalowanie mocy $\times 10\text{ W}$, bateria HV 160–700V |
-| **`ALL_IN_ONE_BK`**| Seria All-in-One | `SUN-BK` | `334`, `335–365` | Zintegrowane magazyny Deye BK |
+| **`3PH_LV`** | Deye Trójfazowy Niskonapięciowy | `SUN-15K-SG05LP3-EU-SM2`, `SUN-8/10/12K-SG04LP3` | `146`, `148–177` / RAM `1100+` | **Blokada zapisu do rejestru 259** (ładowarka EV); ochrona bitu Sell w `172–177` |
+| **`1PH_LV`** | Deye Jednofazowy Niskonapięciowy | `SUN-3.6/5/6/8K-SG01/03LP1` | `248`, `250–279` / RAM `1100+` | Standardowy harmonogram 1-fazowy |
+| **`3PH_HV`** | Deye Trójfazowy Wysokonapięciowy | `SUN-5/6/8/10/15/20K-SG01HP3` | `146`, `148–177` / RAM `1100+` | Skalowanie mocy $\times 10\text{ W}$, bateria HV 160–700V |
+| **`ALL_IN_ONE_BK`**| Deye Seria All-in-One | `SUN-BK` | `334`, `335–365` | Zintegrowane magazyny Deye BK |
+| **`SOFAR_HYD_3PH`**| Sofar Trójfazowy Hybrydowy | `HYD 5K...20KTL-3PH`, seria `G3` | **Passive Mode RAM** (`4368=3`, `4487=P`) | Zero zapisu do EEPROM; automatyczny powrót do Self-Use |
+| **`SOFAR_HYD_1PH`**| Sofar Jednofazowy Hybrydowy | `HYD 3K...6K-EP`, `ME3000SP` | **Passive Mode RAM** (`4368=3`, `4487=P`) | Bateria LV 51.2V; zero zapisu do EEPROM |
 
 ---
 

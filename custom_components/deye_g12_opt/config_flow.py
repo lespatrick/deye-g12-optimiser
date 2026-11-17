@@ -65,6 +65,7 @@ from .const import (
     OPTIMIZATION_STRATEGIES,
     PROFILE_3PH_HV,
     PROFILE_3PH_LV,
+    PROFILE_SOFAR_HYD_3PH,
     STRATEGY_MAX_CHARGE_CHEAP,
     TARIFF_G12W,
     TARIFF_VARIANTS,
@@ -175,7 +176,7 @@ class DeyeG12ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # pyright: i
         profile = self._user_data.get(CONF_INVERTER_PROFILE, PROFILE_3PH_LV)
         default_voltage = (
             DEFAULT_BATTERY_VOLTAGE_V_HV
-            if profile == PROFILE_3PH_HV
+            if profile in (PROFILE_3PH_HV, PROFILE_SOFAR_HYD_3PH)
             else DEFAULT_BATTERY_VOLTAGE_V_LV
         )
 

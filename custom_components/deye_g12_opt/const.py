@@ -21,11 +21,15 @@ PROFILE_1PH_LV: Final = "1ph_lv"
 PROFILE_3PH_LV: Final = "3ph_lv"
 PROFILE_3PH_HV: Final = "3ph_hv"
 PROFILE_ALL_IN_ONE_BK: Final = "all_in_one_bk"
+PROFILE_SOFAR_HYD_3PH: Final = "sofar_hyd_3ph"
+PROFILE_SOFAR_HYD_1PH: Final = "sofar_hyd_1ph"
 INVERTER_PROFILES: Final = [
     PROFILE_3PH_LV,
     PROFILE_1PH_LV,
     PROFILE_3PH_HV,
     PROFILE_ALL_IN_ONE_BK,
+    PROFILE_SOFAR_HYD_3PH,
+    PROFILE_SOFAR_HYD_1PH,
 ]
 
 # PGE Tariffs
@@ -55,6 +59,14 @@ REG_REMOTE_BATTERY_STRATEGY: Final = 1105  # 2=Power, 5=Power + Target SOC
 REG_REMOTE_POWER: Final = 1109  # 0.1% rated power, signed 16-bit (+ dischg, - chg)
 REG_REMOTE_TARGET_SOC: Final = 1110  # Target SOC in 0.1% (800 = 80%)
 REG_REMOTE_MAX_PV: Final = 1115  # Max PV limit (CRITICAL: NEVER >= 1000)
+
+# Sofar Hybrid Passive Mode RAM Registers (4368+)
+REG_SOFAR_WORK_MODE: Final = 4368  # 0x1110 Energy Storage Working Mode
+SOFAR_MODE_SELF_USE: Final = 0  # Default automatic self-consumption
+SOFAR_MODE_TIME_OF_USE: Final = 1  # Standard schedule
+SOFAR_MODE_PASSIVE: Final = 3  # External power control (RAM / Shadow Registers)
+SOFAR_MODE_PEAK_SHAVING: Final = 4
+REG_SOFAR_PASSIVE_POWER: Final = 4487  # Target active power setpoint in Watts (+ charge, - discharge)
 
 # Register Maps for TOU Hardware Profiles
 TOU_REGISTERS: Final[dict[str, dict[str, int | list[int]]]] = {

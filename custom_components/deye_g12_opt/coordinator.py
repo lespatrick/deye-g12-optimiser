@@ -70,6 +70,7 @@ from .const import (
     MODE_TOU_SCHEDULE,
     PROFILE_3PH_HV,
     PROFILE_3PH_LV,
+    PROFILE_SOFAR_HYD_3PH,
     STRATEGY_MAX_CHARGE_CHEAP,
     TARIFF_G12W,
 )
@@ -119,7 +120,7 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         default_voltage = (
             DEFAULT_BATTERY_VOLTAGE_V_HV
-            if self.inverter_profile == PROFILE_3PH_HV
+            if self.inverter_profile in (PROFILE_3PH_HV, PROFILE_SOFAR_HYD_3PH)
             else DEFAULT_BATTERY_VOLTAGE_V_LV
         )
         self.battery_voltage_v = float(config.get(CONF_BATTERY_VOLTAGE_V, default_voltage))
@@ -134,7 +135,7 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.soc_max: float = float(config.get(CONF_SOC_MAX, DEFAULT_SOC_MAX))
         default_min_curr = (
             DEFAULT_MIN_CHARGE_CURRENT_A_HV
-            if self.inverter_profile == PROFILE_3PH_HV
+            if self.inverter_profile in (PROFILE_3PH_HV, PROFILE_SOFAR_HYD_3PH)
             else DEFAULT_MIN_CHARGE_CURRENT_A_LV
         )
         self.min_charge_current_a = int(config.get(CONF_MIN_CHARGE_CURRENT_A, default_min_curr))
@@ -199,6 +200,7 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             allow_battery_sell=bool(
                 config.get(CONF_ALLOW_BATTERY_SELL, DEFAULT_ALLOW_BATTERY_SELL)
             ),
+            battery_voltage_v=self.battery_voltage_v,
         )
 
         # Internal state

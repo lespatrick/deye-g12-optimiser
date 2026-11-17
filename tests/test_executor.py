@@ -10,10 +10,15 @@ from custom_components.deye_g12_opt.const import (
     MODE_REMOTE_RAM,
     MODE_TOU_SCHEDULE,
     PROFILE_3PH_LV,
+    PROFILE_SOFAR_HYD_3PH,
     REG_REMOTE_ENABLE,
     REG_REMOTE_MAX_PV,
     REG_REMOTE_POWER,
     REG_REMOTE_WATCHDOG,
+    REG_SOFAR_PASSIVE_POWER,
+    REG_SOFAR_WORK_MODE,
+    SOFAR_MODE_PASSIVE,
+    SOFAR_MODE_SELF_USE,
 )
 from custom_components.deye_g12_opt.executor import DeyeExecutionError, DeyeExecutor, to_signed_16
 from custom_components.deye_g12_opt.optimizer import PlanResult
@@ -404,5 +409,83 @@ async def test_write_register_offline_solarman_defers_cleanly(hass):
 
         # Ensure we NEVER aggressively reload Solarman during network drops
         assert not mock_reload.called
+
+
+@pytest.mark.asyncio
+async def test_sofar_passive_mode_execution_and_lifecycle(hass):
+    """Verify Sofar Passive Mode execution, power setpoint in Watts, heartbeat, and self-use shutdown."""
+    executor = DeyeExecutor(
+        hass=hass,
+        inverter_profile=PROFILE_SOFAR_HYD_3PH,
+        control_mode=MODE_REMOTE_RAM,
+        battery_voltage_v=300.0,
+        rated_power_w=15000,
+    )
+    assert executor.is_sofar is True
+
+    tariff = PGETariffCalculator()
+    plan = PlanResult("night", 80.0, 10, True, 95.0, 8.0, 1.0, "Test")
+
+    written_registers: dict[int, int] = {}
+
+    async def mock_solarman(call):
+        reg = call.data.get("address", call.data.get("register"))
+        val = call.data["values"][0]
+        written_registers[reg] = val
+
+    hass.services.async_register("solarman", "write_multiple_registers", mock_solarman)
+
+    # 1. Apply plan: sets Work Mode to Passive (3) and Power in Watts (10A * 300V = 3000W)
+    res = await executor.async_apply_plan(
+        plan=plan,
+        tariff_calc=tariff,
+        simulation_mode=False,
+        current_soc=40.0,
+    )
+    assert res is True
+    assert executor.remote_mode_active is True
+    assert written_registers.get(REG_SOFAR_WORK_MODE) == SOFAR_MODE_PASSIVE  # 3
+    assert written_registers.get(REG_SOFAR_PASSIVE_POWER) == 3000  # 3000 W
+
+    # 2. Heartbeat keepalive: refreshes passive work mode (3)
+    written_registers.clear()
+    assert await executor.async_refresh_watchdog() is True
+    assert written_registers.get(REG_SOFAR_WORK_MODE) == SOFAR_MODE_PASSIVE
+
+    # 3. Shutdown: sets Power to 0, returns Work Mode to Self-Use (0)
+    written_registers.clear()
+    assert await executor.async_disable_remote_mode() is True
+    assert executor.remote_mode_active is False
+    assert written_registers.get(REG_SOFAR_PASSIVE_POWER) == 0
+    assert written_registers.get(REG_SOFAR_WORK_MODE) == SOFAR_MODE_SELF_USE  # 0
+
+
+@pytest.mark.asyncio
+async def test_sofar_simulation_mode_makes_no_writes(hass):
+    """Verify that Sofar profile in simulation mode performs zero register writes."""
+    executor = DeyeExecutor(
+        hass=hass,
+        inverter_profile=PROFILE_SOFAR_HYD_3PH,
+        control_mode=MODE_REMOTE_RAM,
+        battery_voltage_v=300.0,
+    )
+
+    written = []
+
+    async def mock_solarman(call):
+        written.append(call.data)
+
+    hass.services.async_register("solarman", "write_multiple_registers", mock_solarman)
+
+    plan = PlanResult("night", 90.0, 15, True, 95.0, 8.0, 1.0, "Test")
+    res = await executor.async_apply_plan(
+        plan=plan,
+        tariff_calc=PGETariffCalculator(),
+        simulation_mode=True,
+        current_soc=45.0,
+    )
+    assert res is True
+    assert len(written) == 0
+    assert "Simulation" in executor.last_execution_status
 
 

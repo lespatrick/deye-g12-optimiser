@@ -26,6 +26,7 @@ from custom_components.deye_g12_opt.const import (
     DOMAIN,
     MODE_TOU_SCHEDULE,
     PROFILE_3PH_LV,
+    PROFILE_SOFAR_HYD_3PH,
     TARIFF_G12W,
 )
 
@@ -178,3 +179,45 @@ async def test_config_flow_with_today_and_tomorrow_forecast_entities(hass: HomeA
     assert result4["type"] == FlowResultType.CREATE_ENTRY
     assert result4["data"][CONF_PV_FORECAST_TODAY_ENTITY] == "sensor.solcast_today"
     assert result4["data"][CONF_PV_FORECAST_TOMORROW_ENTITY] == "sensor.solcast_tomorrow"
+
+
+async def test_config_flow_with_sofar_profile(hass: HomeAssistant):
+    """Test configuration flow selecting Sofar HYD 3PH profile with default HV voltage."""
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    assert result["type"] == FlowResultType.FORM
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "title": "Sofar HYD-15K",
+            CONF_INVERTER_PROFILE: PROFILE_SOFAR_HYD_3PH,
+            CONF_CONTROL_MODE: MODE_TOU_SCHEDULE,
+        },
+    )
+    assert result2["type"] == FlowResultType.FORM
+    assert result2["step_id"] == "entities"
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result2["flow_id"],
+        {
+            CONF_BATTERY_SOC_ENTITY: "sensor.sofar_battery_soc",
+            CONF_TOTAL_LOAD_ENTITY: "sensor.sofar_total_load",
+        },
+    )
+    assert result3["type"] == FlowResultType.FORM
+    assert result3["step_id"] == "system_and_tariff"
+
+    result4 = await hass.config_entries.flow.async_configure(
+        result3["flow_id"],
+        {
+            CONF_BATTERY_CAPACITY_KWH: 20.0,
+            CONF_BATTERY_VOLTAGE_V: 300.0,
+            CONF_RATED_POWER_W: 15000,
+            CONF_PGE_TARIFF: TARIFF_G12W,
+            CONF_PGE_SEASONAL_SHIFT: True,
+            CONF_METER_FIXED_WINTER_TIME: False,
+        },
+    )
+    assert result4["type"] == FlowResultType.CREATE_ENTRY
+    assert result4["data"][CONF_INVERTER_PROFILE] == PROFILE_SOFAR_HYD_3PH
+    assert result4["data"][CONF_BATTERY_VOLTAGE_V] == 300.0
