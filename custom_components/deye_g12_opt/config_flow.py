@@ -29,6 +29,8 @@ from .const import (
     CONF_PGE_SEASONAL_SHIFT,
     CONF_PGE_TARIFF,
     CONF_PV_FORECAST_ENTITY,
+    CONF_PV_FORECAST_TODAY_ENTITY,
+    CONF_PV_FORECAST_TOMORROW_ENTITY,
     CONF_RATED_POWER_W,
     CONF_READBACK_DELAY_SEC,
     CONF_SAFETY_LOAD,
@@ -135,6 +137,12 @@ class DeyeG12ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # pyright: i
                 vol.Required(CONF_TOTAL_LOAD_ENTITY): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
+                vol.Optional(CONF_PV_FORECAST_TODAY_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(CONF_PV_FORECAST_TOMORROW_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
                 vol.Optional(CONF_PV_FORECAST_ENTITY): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
@@ -236,6 +244,8 @@ class DeyeG12OptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=user_input)
 
         config = {**self.config_entry.data, **self.config_entry.options}
+        pv_today = config.get(CONF_PV_FORECAST_TODAY_ENTITY) or config.get(CONF_PV_FORECAST_ENTITY)
+        pv_tomorrow = config.get(CONF_PV_FORECAST_TOMORROW_ENTITY)
 
         data_schema = vol.Schema(
             {
@@ -263,6 +273,14 @@ class DeyeG12OptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_SOLARMAN_DEVICE_ID,
                     default=config.get(CONF_SOLARMAN_DEVICE_ID) or "",
                 ): selector.TextSelector(),
+                vol.Optional(
+                    CONF_PV_FORECAST_TODAY_ENTITY,
+                    description={"suggested_value": pv_today} if pv_today else {},
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                vol.Optional(
+                    CONF_PV_FORECAST_TOMORROW_ENTITY,
+                    description={"suggested_value": pv_tomorrow} if pv_tomorrow else {},
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
                 vol.Required(
                     CONF_SOC_MIN,
                     default=float(config.get(CONF_SOC_MIN, DEFAULT_SOC_MIN)),

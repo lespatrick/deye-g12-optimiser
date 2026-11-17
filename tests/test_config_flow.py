@@ -17,6 +17,8 @@ from custom_components.deye_g12_opt.const import (
     CONF_PGE_SEASONAL_SHIFT,
     CONF_PGE_TARIFF,
     CONF_PV_FORECAST_ENTITY,
+    CONF_PV_FORECAST_TODAY_ENTITY,
+    CONF_PV_FORECAST_TOMORROW_ENTITY,
     CONF_RATED_POWER_W,
     CONF_SOC_MAX,
     CONF_SOC_MIN,
@@ -104,6 +106,8 @@ async def test_options_flow(hass: HomeAssistant):
         {
             CONF_CONTROL_MODE: MODE_TOU_SCHEDULE,
             "solarman_device_id": "SOLARMAN_SN_9999",
+            CONF_PV_FORECAST_TODAY_ENTITY: "sensor.solcast_pv_forecast_forecast_today",
+            CONF_PV_FORECAST_TOMORROW_ENTITY: "sensor.solcast_pv_forecast_forecast_tomorrow",
             CONF_SOC_MIN: 20.0,
             CONF_SOC_MAX: 90.0,
             "max_user_charge_current_a": 60,
@@ -122,5 +126,55 @@ async def test_options_flow(hass: HomeAssistant):
     )
     assert result2["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options["solarman_device_id"] == "SOLARMAN_SN_9999"
+    assert (
+        entry.options[CONF_PV_FORECAST_TODAY_ENTITY]
+        == "sensor.solcast_pv_forecast_forecast_today"
+    )
+    assert (
+        entry.options[CONF_PV_FORECAST_TOMORROW_ENTITY]
+        == "sensor.solcast_pv_forecast_forecast_tomorrow"
+    )
     assert entry.options[CONF_SOC_MIN] == 20.0
     assert entry.options[CONF_SOC_MAX] == 90.0
+
+
+async def test_config_flow_with_today_and_tomorrow_forecast_entities(hass: HomeAssistant):
+    """Test setting up distinct today and tomorrow forecast entities via config flow."""
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    assert result["type"] == FlowResultType.FORM
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "title": "Dual Forecast Deye",
+            CONF_INVERTER_PROFILE: PROFILE_3PH_LV,
+            CONF_CONTROL_MODE: MODE_TOU_SCHEDULE,
+        },
+    )
+    assert result2["type"] == FlowResultType.FORM
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result2["flow_id"],
+        {
+            CONF_BATTERY_SOC_ENTITY: "sensor.battery_soc",
+            CONF_TOTAL_LOAD_ENTITY: "sensor.total_load",
+            CONF_PV_FORECAST_TODAY_ENTITY: "sensor.solcast_today",
+            CONF_PV_FORECAST_TOMORROW_ENTITY: "sensor.solcast_tomorrow",
+        },
+    )
+    assert result3["type"] == FlowResultType.FORM
+
+    result4 = await hass.config_entries.flow.async_configure(
+        result3["flow_id"],
+        {
+            CONF_BATTERY_CAPACITY_KWH: 15.0,
+            CONF_BATTERY_VOLTAGE_V: 51.2,
+            CONF_RATED_POWER_W: 15000,
+            CONF_PGE_TARIFF: TARIFF_G12W,
+            CONF_PGE_SEASONAL_SHIFT: True,
+            CONF_METER_FIXED_WINTER_TIME: False,
+        },
+    )
+    assert result4["type"] == FlowResultType.CREATE_ENTRY
+    assert result4["data"][CONF_PV_FORECAST_TODAY_ENTITY] == "sensor.solcast_today"
+    assert result4["data"][CONF_PV_FORECAST_TOMORROW_ENTITY] == "sensor.solcast_tomorrow"

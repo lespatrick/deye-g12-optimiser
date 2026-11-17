@@ -33,6 +33,8 @@ from .const import (
     CONF_PGE_SEASONAL_SHIFT,
     CONF_PGE_TARIFF,
     CONF_PV_FORECAST_ENTITY,
+    CONF_PV_FORECAST_TODAY_ENTITY,
+    CONF_PV_FORECAST_TOMORROW_ENTITY,
     CONF_RATED_POWER_W,
     CONF_READBACK_DELAY_SEC,
     CONF_SAFETY_LOAD,
@@ -103,7 +105,13 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.total_load_entity = config.get(CONF_TOTAL_LOAD_ENTITY)
         self.bms_alarm_entity = config.get(CONF_BMS_ALARM_ENTITY)
         self.bms_ccl_entity = config.get(CONF_BMS_CCL_ENTITY)
-        self.pv_forecast_entity = config.get(CONF_PV_FORECAST_ENTITY)
+        self.pv_forecast_today_entity = config.get(CONF_PV_FORECAST_TODAY_ENTITY) or config.get(
+            CONF_PV_FORECAST_ENTITY
+        )
+        self.pv_forecast_tomorrow_entity = config.get(CONF_PV_FORECAST_TOMORROW_ENTITY)
+        self.pv_forecast_entity = (
+            self.pv_forecast_today_entity or self.pv_forecast_tomorrow_entity
+        )
 
         # System parameters
         self.battery_capacity_kwh = float(
@@ -488,9 +496,10 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                     start_m.hour, end_m.hour, now
                 )
 
-            # PV forecast
+            # PV forecast for tomorrow morning peak
+            forecast_entity = self.pv_forecast_tomorrow_entity or self.pv_forecast_entity
             e_pv, _ = self.pv_parser.get_forecast_energy_kwh(
-                self.hass, self.pv_forecast_entity, start_m, end_m
+                self.hass, forecast_entity, start_m, end_m
             )
 
             plan = self.optimizer.calculate_night_plan(
@@ -511,8 +520,10 @@ class DeyeG12Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                     start_e.hour, end_e.hour, now
                 )
 
+            # PV forecast for today evening peak
+            forecast_entity = self.pv_forecast_today_entity or self.pv_forecast_entity
             e_pv, _ = self.pv_parser.get_forecast_energy_kwh(
-                self.hass, self.pv_forecast_entity, start_e, end_e
+                self.hass, forecast_entity, start_e, end_e
             )
 
             plan = self.optimizer.calculate_midday_plan(

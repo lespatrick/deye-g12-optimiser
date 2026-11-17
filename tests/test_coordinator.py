@@ -18,6 +18,8 @@ from custom_components.deye_g12_opt.const import (
     CONF_INVERTER_PROFILE,
     CONF_PGE_TARIFF,
     CONF_PV_FORECAST_ENTITY,
+    CONF_PV_FORECAST_TODAY_ENTITY,
+    CONF_PV_FORECAST_TOMORROW_ENTITY,
     CONF_RATED_POWER_W,
     CONF_TOTAL_LOAD_ENTITY,
     DOMAIN,
@@ -326,6 +328,52 @@ async def test_coordinator_watchdog_auto_migration_and_rearm(hass: HomeAssistant
             await coordinator._async_update_data()
             assert mock_disable.called
             assert coordinator.current_plan.grid_charge_enable is False
+
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_coordinator_uses_distinct_today_and_tomorrow_forecast_entities(hass: HomeAssistant):
+    """Verify coordinator uses distinct today and tomorrow forecast entities for midday and night plans."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Deye Dual Forecast Test",
+        data={
+            CONF_INVERTER_PROFILE: PROFILE_3PH_LV,
+            CONF_CONTROL_MODE: MODE_TOU_SCHEDULE,
+            CONF_BATTERY_SOC_ENTITY: "sensor.battery_soc",
+            CONF_TOTAL_LOAD_ENTITY: "sensor.total_load",
+            CONF_PV_FORECAST_TODAY_ENTITY: "sensor.solcast_today",
+            CONF_PV_FORECAST_TOMORROW_ENTITY: "sensor.solcast_tomorrow",
+            CONF_BATTERY_CAPACITY_KWH: 15.0,
+            CONF_BATTERY_VOLTAGE_V: 51.2,
+            CONF_RATED_POWER_W: 15000,
+            CONF_PGE_TARIFF: TARIFF_G12W,
+        },
+        entry_id="test_entry_dual_forecast",
+    )
+    entry.add_to_hass(hass)
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    coordinator: DeyeG12Coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert coordinator.pv_forecast_today_entity == "sensor.solcast_today"
+    assert coordinator.pv_forecast_tomorrow_entity == "sensor.solcast_tomorrow"
+
+    queried_entities: list[str] = []
+
+    def mock_get_forecast(hass, entity_id, start_dt, end_dt):
+        queried_entities.append(entity_id)
+        return (2.5, True)
+
+    with patch.object(coordinator.pv_parser, "get_forecast_energy_kwh", side_effect=mock_get_forecast):
+        # 1. Midday evaluation -> targets today's evening peak -> queries today entity
+        await coordinator.async_evaluate_and_apply("midday")
+        assert queried_entities[-1] == "sensor.solcast_today"
+
+        # 2. Night evaluation -> targets tomorrow's morning peak -> queries tomorrow entity
+        await coordinator.async_evaluate_and_apply("night")
+        assert queried_entities[-1] == "sensor.solcast_tomorrow"
 
     await hass.config_entries.async_unload(entry.entry_id)
 

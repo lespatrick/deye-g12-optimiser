@@ -115,6 +115,7 @@ CONF_TOTAL_LOAD_ENTITY: Final = "total_load_entity"
 CONF_BMS_ALARM_ENTITY: Final = "bms_alarm_entity"
 CONF_BMS_CCL_ENTITY: Final = "bms_ccl_entity"
 CONF_PV_FORECAST_ENTITY: Final = "pv_forecast_entity"
+CONF_PV_FORECAST_TODAY_ENTITY: Final = "pv_forecast_today_entity"
 CONF_PV_FORECAST_TOMORROW_ENTITY: Final = "pv_forecast_tomorrow_entity"
 CONF_TOU_PREFIX: Final = "tou_prefix"
 

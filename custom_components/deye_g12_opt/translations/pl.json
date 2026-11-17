@@ -17,7 +17,9 @@
         "data": {
           "battery_soc_entity": "Czujnik poziomu naładowania baterii (SOC)",
           "total_load_entity": "Czujnik całkowitego zużycia domu (kWh rosnący)",
-          "pv_forecast_entity": "Czujnik prognozy PV (Solcast, Open-Meteo, Forecast.Solar)",
+          "pv_forecast_today_entity": "Czujnik prognozy PV na dzisiaj (np. Solcast Forecast Today)",
+          "pv_forecast_tomorrow_entity": "Czujnik prognozy PV na jutro (np. Solcast Forecast Tomorrow)",
+          "pv_forecast_entity": "Czujnik ogólnej prognozy PV (opcjonalny / kompatybilność)",
           "bms_alarm_entity": "Czujnik alarmu BMS (opcjonalny)",
           "bms_ccl_entity": "Czujnik limitu prądu ładowania BMS (opcjonalny)"
         }
@@ -44,6 +46,8 @@
           "optimization_strategy": "Strategia ładowania",
           "control_mode": "Tryb sterowania",
           "solarman_device_id": "Numer seryjny / ID urządzenia Solarman (opcjonalny)",
+          "pv_forecast_today_entity": "Czujnik prognozy PV na dzisiaj (np. Solcast Forecast Today)",
+          "pv_forecast_tomorrow_entity": "Czujnik prognozy PV na jutro (np. Solcast Forecast Tomorrow)",
           "soc_min": "Minimalny rezerwowy SOC (%)",
           "soc_max": "Maksymalny docelowy SOC z sieci (%)",
           "max_user_charge_current_a": "Maksymalny prąd ładowania z sieci (A)",

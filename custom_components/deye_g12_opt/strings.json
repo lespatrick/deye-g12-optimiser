@@ -17,7 +17,9 @@
         "data": {
           "battery_soc_entity": "Battery SOC Sensor",
           "total_load_entity": "Total Home Load Sensor (kWh increasing)",
-          "pv_forecast_entity": "PV Forecast Sensor (Solcast, Open-Meteo, Forecast.Solar)",
+          "pv_forecast_today_entity": "PV Forecast Today Sensor (e.g. Solcast Forecast Today)",
+          "pv_forecast_tomorrow_entity": "PV Forecast Tomorrow Sensor (e.g. Solcast Forecast Tomorrow)",
+          "pv_forecast_entity": "General PV Forecast Sensor (optional / legacy)",
           "bms_alarm_entity": "BMS Alarm Binary Sensor / Sensor (optional)",
           "bms_ccl_entity": "BMS Charge Current Limit Sensor (optional)"
         }
@@ -44,6 +46,8 @@
           "optimization_strategy": "Charging Strategy",
           "control_mode": "Control Mode",
           "solarman_device_id": "Solarman Device ID / Serial Number (optional)",
+          "pv_forecast_today_entity": "PV Forecast Today Sensor (e.g. Solcast Forecast Today)",
+          "pv_forecast_tomorrow_entity": "PV Forecast Tomorrow Sensor (e.g. Solcast Forecast Tomorrow)",
           "soc_min": "Minimum Reserve SOC (%)",
           "soc_max": "Maximum Grid Charge SOC (%)",
           "max_user_charge_current_a": "Maximum Grid Charge Current (A)",
